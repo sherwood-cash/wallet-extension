@@ -20,19 +20,11 @@ import {
   Wallet,
 } from './ui'
 
-/** The Sherwood mark. Bundled webp, so the popup renders it with no network at all. */
+/** The Sherwood mark. Bundled webp, so the popup renders it with no network at all. The
+ *  wordmark text was dropped — it truncated to "SHERWO…" in the popup and the logo alone
+ *  reads clearly. */
 function Wordmark() {
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      <img src="./parallax/logo-mark.webp" alt="" width={22} height={22} className="shrink-0 rounded-md" />
-      <span
-        className="truncate text-[15px] font-semibold tracking-wide text-mint"
-        style={{ fontFamily: "'Cinzel', Georgia, serif" }}
-      >
-        Sherwood
-      </span>
-    </span>
-  )
+  return <img src="./parallax/logo-mark.webp" alt="Sherwood" width={28} height={28} className="shrink-0 rounded-md" />
 }
 
 function short(addr: string) {
@@ -80,12 +72,6 @@ export function Header({
           <div className="flex items-center gap-0.5 rounded-full border border-edge/60 bg-ink/50 p-0.5 shadow-soft">
             <IconBtn label="Refresh balances" onClick={refresh} spin={refreshing}>
               <Refresh width={15} height={15} />
-            </IconBtn>
-            <IconBtn label="Open in a tab" onClick={expand}>
-              <ExternalLink width={15} height={15} />
-            </IconBtn>
-            <IconBtn label="Settings" onClick={() => go('settings')}>
-              <Cog width={15} height={15} />
             </IconBtn>
             <IconBtn label="Lock wallet" onClick={onLock}>
               <LogOut width={15} height={15} />

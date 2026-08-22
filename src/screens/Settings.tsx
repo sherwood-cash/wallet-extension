@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { DEPLOYMENT, EXPLORER } from '@app/config'
 import { useAccountState } from '../state'
 import { useVault } from '../wallet/useVault'
+import { currentRpc, customRpc, saveCustomRpc, clearCustomRpc, testRpc } from '../wallet/rpc'
 import {
   Copy,
   ExternalLink,
@@ -48,15 +49,6 @@ export function Settings() {
 
       <footer className="pb-1 text-center text-[11px] leading-relaxed text-muted">
         Sherwood Wallet {manifest.version}
-        <span className="px-1.5 text-edgeLit">·</span>
-        <a
-          href={WEB_APP}
-          target="_blank"
-          rel="noreferrer"
-          className="font-semibold text-mint hover:underline"
-        >
-          Open the web app
-        </a>
       </footer>
     </div>
   )
@@ -407,14 +399,66 @@ function Security({
   )
 }
 
-function Network() {
-  // The RPC URL carries an API key in its path, so only the host is shown: the useful
-  // part of this row is which provider is being talked to, not the credential.
-  let rpcHost = DEPLOYMENT.rpcUrl
+const Pencil = ({ width = 14, height = 14, className }: { width?: number; height?: number; className?: string }) => (
+  <svg
+    width={width}
+    height={height}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.7}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+)
+
+function hostOf(url: string): string {
   try {
-    rpcHost = new URL(DEPLOYMENT.rpcUrl).host
+    return new URL(url).host
   } catch {
-    /* a malformed URL is worth showing verbatim — it is the thing that is broken */
+    return url
+  }
+}
+
+function Network() {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [rpc, setRpc] = useState(currentRpc())
+  const isCustom = customRpc() !== null
+
+  const startEdit = () => {
+    setDraft(currentRpc())
+    setNote(null)
+    setEditing(true)
+  }
+
+  const save = async () => {
+    setTesting(true)
+    setNote(null)
+    const res = await testRpc(draft)
+    setTesting(false)
+    if (!res.ok) {
+      setNote({ ok: false, text: res.error ?? 'That RPC did not work.' })
+      return
+    }
+    saveCustomRpc(draft)
+    setRpc(currentRpc())
+    setEditing(false)
+    setNote({ ok: true, text: 'Saved — the wallet now reads from your RPC.' })
+  }
+
+  const reset = () => {
+    clearCustomRpc()
+    setRpc(currentRpc())
+    setDraft('')
+    setEditing(false)
+    setNote({ ok: true, text: 'Reverted to the default RPC.' })
   }
 
   return (
@@ -435,7 +479,62 @@ function Network() {
           </a>
         }
       />
-      <InfoRow label="RPC" value={rpcHost} />
+
+      {!editing ? (
+        <div className="row items-center justify-between">
+          <span className="label">RPC</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-mono text-[11.5px] text-white/85">{hostOf(rpc)}</span>
+            {isCustom && (
+              <span className="rounded-full border border-gold/40 bg-gold/10 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-gold">
+                custom
+              </span>
+            )}
+            <button
+              onClick={startEdit}
+              aria-label="Edit RPC"
+              title="Set a custom RPC"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted transition hover:text-gold"
+            >
+              <Pencil width={13} height={13} />
+            </button>
+          </span>
+        </div>
+      ) : (
+        <div className="inset mt-1 space-y-2 px-3 py-3">
+          <span className="label">Custom RPC URL</span>
+          <input
+            className="input font-mono text-[12px]"
+            placeholder="https://your-rpc…"
+            spellCheck={false}
+            autoComplete="off"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <button className="btn-primary flex-1" disabled={testing || !draft.trim()} onClick={() => void save()}>
+              {testing ? 'Testing…' : 'Save'}
+            </button>
+            <button className="btn-ghost flex-1" disabled={testing} onClick={reset}>
+              Use default
+            </button>
+            <button
+              className="btn-ghost px-3"
+              disabled={testing}
+              onClick={() => {
+                setEditing(false)
+                setNote(null)
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {note && (
+        <p className={`mt-1.5 text-[11px] leading-relaxed ${note.ok ? 'text-mint' : 'text-neg'}`}>{note.text}</p>
+      )}
+
       <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-moss">
         <Shield width={12} height={12} className="mt-0.5 shrink-0" />
         Balances and proofs are read straight from this node. Nothing about your notes

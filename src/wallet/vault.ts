@@ -53,9 +53,12 @@ export const MIN_PASSWORD_LENGTH = 8
  *  deposit and a swap, short enough that a walked-away-from laptop closes itself. */
 const DEFAULT_AUTOLOCK_MS = 30 * 60_000
 
-/** scrypt work factor. 2^15 is the ethers default for `Wallet.encrypt`; we state it
- *  explicitly so a future ethers change cannot silently weaken existing keystores. */
-const SCRYPT_N = 1 << 15
+/** scrypt work factor for NEW keystores. Lowered from 2^15 to 2^14 to roughly halve the
+ *  unlock/encrypt wait (the dominant cost) while still forcing an scrypt run per password
+ *  guess against a stolen keystore. Existing keystores keep whatever N they were written
+ *  with — the parameters live in the keystore JSON, so this only speeds up wallets created
+ *  or imported from here on. */
+const SCRYPT_N = 1 << 14
 
 /** 0 → 1. Both scrypt directions report through this so the UI can show a number. */
 export type ProgressFn = (fraction: number) => void

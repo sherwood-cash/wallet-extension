@@ -245,6 +245,53 @@ export function fmtUnits(v: ethers.BigNumber | undefined, decimals: number, max 
   return cut ? `${whole}.${cut}` : whole
 }
 
+/** The top tokens by vault TVL, straight from the indexer's /assets ranking — the same
+ *  list the web app's Assets page shows. Used to widen Private mode beyond the three
+ *  defaults so a user sees their shielded balance across the assets that actually trade
+ *  here. Returns [] with no indexer or on any failure. */
+async function fetchTopAssets(limit = 12): Promise<AssetMeta[]> {
+  const base = indexerBaseUrl()
+  if (!base) return []
+  try {
+    const sher = ASSETS.find((a) => a.key === 'sherwood')?.token
+    const include = sher ? `&include=${sher}` : ''
+    const res = await fetch(`${base}/assets?limit=${limit}${include}`, { headers: { accept: 'application/json' } })
+    if (!res.ok) return []
+    const body = (await res.json()) as {
+      assets?: Array<{
+        assetId: string
+        token: string
+        native?: boolean
+        symbol?: string | null
+        name?: string | null
+        decimals?: number | null
+        logoUrl?: string | null
+      }>
+    }
+    const rows = Array.isArray(body?.assets) ? body.assets : []
+    const out: AssetMeta[] = []
+    for (const a of rows) {
+      if (!a || a.decimals == null || !a.symbol) continue
+      const native = !!a.native
+      const token = native ? ethers.constants.AddressZero : a.token
+      out.push({
+        token,
+        decimals: Number(a.decimals),
+        native,
+        key: native ? 'eth' : `t:${token.toLowerCase()}`,
+        symbol: a.symbol,
+        name: a.name || a.symbol,
+        accent: '#cdb360',
+        logoUrl: a.logoUrl || undefined,
+        assetId: ethers.BigNumber.from(a.assetId),
+      } as AssetMeta)
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
 /** Reject a promise if it hasn't settled in `ms`, so a stalled read never wedges the UI. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -276,12 +323,40 @@ export function AccountProvider({
   const [tick, setTick] = useState(0)
   const [customAssets, setCustomAssets] = useState<AssetMeta[]>(readCustomTokens)
   const [shieldedLoading, setShieldedLoading] = useState(false)
+  const [topAssets, setTopAssets] = useState<AssetMeta[]>([])
 
-  // The visible list: the three defaults, then whatever the user has added (deduped by key).
+  // Pull the top-by-TVL ranking once; Private mode widens to it so the shielded scan covers
+  // the assets that actually trade here, not just the three defaults.
+  useEffect(() => {
+    let alive = true
+    fetchTopAssets(12)
+      .then((a) => {
+        if (alive) setTopAssets(a)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // The visible list. Normal mode: the three defaults + the user's own added tokens. Private
+  // mode also folds in the top-by-TVL assets so shielded balances are computed across them.
+  // Deduped by token address (defaults first, then TVL, then custom).
   const assets = useMemo(() => {
-    const seen = new Set(DEFAULT_ASSETS.map((a) => a.key))
-    return [...DEFAULT_ASSETS, ...customAssets.filter((a) => !seen.has(a.key))]
-  }, [customAssets])
+    const list: AssetMeta[] = [...DEFAULT_ASSETS]
+    const seen = new Set(DEFAULT_ASSETS.map((a) => a.token.toLowerCase()))
+    const add = (arr: AssetMeta[]) => {
+      for (const a of arr) {
+        const t = a.token.toLowerCase()
+        if (seen.has(t)) continue
+        seen.add(t)
+        list.push(a)
+      }
+    }
+    if (mode === 'private') add(topAssets)
+    add(customAssets)
+    return list
+  }, [mode, topAssets, customAssets])
 
   // The deployment's other tokens not already shown — the "add from list" suggestions.
   const catalog = useMemo(() => {

@@ -2,7 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { I18nProvider } from '@app/lib/i18n'
 import { App } from './App'
+import { initRpcOverride } from './wallet/rpc'
 import './index.css'
+
+// If the user set a custom RPC, point the shared read provider at it before anything reads
+// the chain, so balances load from their endpoint from the very first request.
+initRpcOverride()
 
 // `?view=tab` is the popped-out copy of the popup: same app, but allowed to fill a
 // real browser tab. The flag is put on <html> so the stylesheet can undo the fixed
