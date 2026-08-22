@@ -48,6 +48,95 @@ function readMode(): WalletMode {
   }
 }
 
+/** Tokens the wallet shows by default. Everything else is opt-in via "add token". */
+const DEFAULT_ASSET_KEYS = ['eth', 'usdg', 'sherwood']
+const DEFAULT_ASSETS: AssetMeta[] = ASSETS.filter((a) => DEFAULT_ASSET_KEYS.includes(a.key))
+
+/** User-added tokens, persisted so a reopen keeps them. Stored as plain rows because a
+ *  BigNumber assetId does not survive JSON — it is re-derived from the token on load. */
+const TOKENS_KEY = 'sherwood:ext:tokens'
+interface StoredToken {
+  key: string
+  token: string
+  decimals: number
+  symbol: string
+  name: string
+  accent?: string
+  logoUrl?: string
+}
+
+function toAsset(t: StoredToken): AssetMeta {
+  return {
+    token: t.token,
+    decimals: t.decimals,
+    native: false,
+    key: t.key,
+    symbol: t.symbol,
+    name: t.name,
+    accent: t.accent ?? '#50d2c1',
+    logoUrl: t.logoUrl,
+    assetId: ethers.BigNumber.from(t.token),
+  } as AssetMeta
+}
+
+function readCustomTokens(): AssetMeta[] {
+  try {
+    const raw = localStorage.getItem(TOKENS_KEY)
+    if (!raw) return []
+    const rows = JSON.parse(raw) as StoredToken[]
+    return Array.isArray(rows) ? rows.map(toAsset) : []
+  } catch {
+    return []
+  }
+}
+
+function saveCustomTokens(list: AssetMeta[]): void {
+  try {
+    const rows: StoredToken[] = list.map((a) => ({
+      key: a.key,
+      token: a.token,
+      decimals: a.decimals,
+      symbol: a.symbol,
+      name: a.name,
+      accent: a.accent,
+      logoUrl: a.logoUrl,
+    }))
+    localStorage.setItem(TOKENS_KEY, JSON.stringify(rows))
+  } catch {
+    /* quota / private-mode storage — the token list is a convenience */
+  }
+}
+
+const ERC20_META_ABI = [
+  'function symbol() view returns (string)',
+  'function name() view returns (string)',
+  'function decimals() view returns (uint8)',
+]
+
+/** Read an ERC-20's metadata so an added token shows a real symbol and decimals. */
+async function fetchTokenMeta(address: string): Promise<AssetMeta> {
+  const addr = ethers.utils.getAddress(address)
+  const c = new ethers.Contract(addr, ERC20_META_ABI, readProvider)
+  const [symbol, name, decimals] = await Promise.all([
+    c.symbol().catch(() => addr.slice(0, 6)),
+    c.name().catch(() => 'Token'),
+    c
+      .decimals()
+      .then((d: number) => Number(d))
+      .catch(() => 18),
+  ])
+  return {
+    token: addr,
+    decimals,
+    native: false,
+    key: `t:${addr.toLowerCase()}`,
+    symbol,
+    name,
+    accent: '#50d2c1',
+    assetId: ethers.BigNumber.from(addr),
+  } as AssetMeta
+}
+
 export interface AccountState {
   /** Local signer, already connected to the read RPC. Null while locked. */
   signer: ethers.Wallet | null
@@ -67,12 +156,25 @@ export interface AccountState {
   asset: AssetMeta
   selectAsset: (key: string) => void
 
+  /** The deployment's other tokens not currently shown — suggestions for "add token". */
+  catalog: AssetMeta[]
+  /** Add a token from the catalog (by its metadata). */
+  addToken: (meta: AssetMeta) => void
+  /** Add a token by address; reads symbol/name/decimals on-chain. Throws on bad/duplicate. */
+  addTokenByAddress: (address: string) => Promise<AssetMeta>
+  /** Remove a user-added token. Defaults (ETH/USDG/SHERWOOD) cannot be removed. */
+  removeToken: (key: string) => void
+  /** Whether a token is a non-removable default. */
+  isDefaultAsset: (key: string) => boolean
+
   /** Plain (unshielded) wallet balances per asset key, plus the native gas balance. */
   wallet: Map<string, AssetBalances>
   /** Shielded note totals per asset key. */
   shielded: Map<string, NoteSummary>
-  /** True during the first load, so the UI shows skeletons rather than zeroes. */
+  /** True during the first load of the plain wallet balances, so the UI shows skeletons. */
   loading: boolean
+  /** True while the shielded (private) scan is still running — independent of `loading`. */
+  shieldedLoading: boolean
   /** True while a background refresh is in flight (first load included). */
   refreshing: boolean
   refresh: () => void
@@ -110,6 +212,14 @@ export function fmtUnits(v: ethers.BigNumber | undefined, decimals: number, max 
   return cut ? `${whole}.${cut}` : whole
 }
 
+/** Reject a promise if it hasn't settled in `ms`, so a stalled read never wedges the UI. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('read timed out')), ms)),
+  ])
+}
+
 export function AccountProvider({
   signer,
   address,
@@ -131,10 +241,66 @@ export function AccountProvider({
   const [refreshing, setRefreshing] = useState(false)
   const [activity, setActivity] = useState<ActivityItem[]>([])
   const [tick, setTick] = useState(0)
+  const [customAssets, setCustomAssets] = useState<AssetMeta[]>(readCustomTokens)
+  const [shieldedLoading, setShieldedLoading] = useState(false)
+
+  // The visible list: the three defaults, then whatever the user has added (deduped by key).
+  const assets = useMemo(() => {
+    const seen = new Set(DEFAULT_ASSETS.map((a) => a.key))
+    return [...DEFAULT_ASSETS, ...customAssets.filter((a) => !seen.has(a.key))]
+  }, [customAssets])
+
+  // The deployment's other tokens not already shown — the "add from list" suggestions.
+  const catalog = useMemo(() => {
+    const shown = new Set(assets.map((a) => a.token.toLowerCase()))
+    return ASSETS.filter((a) => !shown.has(a.token.toLowerCase()))
+  }, [assets])
 
   const asset = useMemo(
-    () => ASSETS.find((a) => a.key === assetKey) ?? ASSETS[0],
-    [assetKey],
+    () => assets.find((a) => a.key === assetKey) ?? assets[0],
+    [assets, assetKey],
+  )
+
+  const isDefaultAsset = useCallback((key: string) => DEFAULT_ASSET_KEYS.includes(key), [])
+
+  const addToken = useCallback((meta: AssetMeta) => {
+    setCustomAssets((prev) => {
+      if (DEFAULT_ASSET_KEYS.includes(meta.key)) return prev
+      if (prev.some((a) => a.token.toLowerCase() === meta.token.toLowerCase())) return prev
+      const next = [...prev, meta]
+      saveCustomTokens(next)
+      return next
+    })
+    setTick((t) => t + 1)
+  }, [])
+
+  const addTokenByAddress = useCallback(
+    async (address: string) => {
+      if (!ethers.utils.isAddress(address)) throw new Error('Not a valid token address')
+      const addr = ethers.utils.getAddress(address)
+      if (
+        DEFAULT_ASSETS.concat(customAssets).some((a) => a.token.toLowerCase() === addr.toLowerCase())
+      ) {
+        throw new Error('Token already added')
+      }
+      const meta = await fetchTokenMeta(addr)
+      addToken(meta)
+      return meta
+    },
+    [customAssets, addToken],
+  )
+
+  const removeToken = useCallback(
+    (key: string) => {
+      if (DEFAULT_ASSET_KEYS.includes(key)) return
+      setCustomAssets((prev) => {
+        const next = prev.filter((a) => a.key !== key)
+        saveCustomTokens(next)
+        return next
+      })
+      setAssetKey((cur) => (cur === key ? 'eth' : cur))
+    },
+    [],
   )
 
   // --- sign-in -------------------------------------------------------------
@@ -195,42 +361,56 @@ export function AccountProvider({
   // Plain balances land in one Multicall3 round-trip and are cheap, so they refresh
   // on every tick. The shielded scan walks the merkle tree and trial-decrypts every
   // leaf, so it only runs once keys exist and streams results in as each asset lands.
-  const inFlight = useRef(false)
   useEffect(() => {
     if (!address) {
       setWallet(new Map())
       setShielded(new Map())
       setLoading(false)
+      setShieldedLoading(false)
+      setRefreshing(false)
       return
     }
-    if (inFlight.current) return
     let alive = true
-    inFlight.current = true
     setRefreshing(true)
 
-    const plain = fetchAssetBalances(readProvider, address, ASSETS)
+    // Plain wallet balances: one Multicall3 round-trip. This alone drives `loading`, so the
+    // wallet view (and Normal mode) shows numbers the moment it lands — it never waits on the
+    // shielded scan, which is what used to leave BOTH modes stuck on a spinner.
+    withTimeout(fetchAssetBalances(readProvider, address, assets), 20000)
       .then((m) => {
         if (alive) setWallet(m)
       })
       .catch((e) => console.error('wallet balances', e))
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
 
-    const priv = keys
-      ? getShieldedBalances(readProvider, ASSETS, keys, DEPLOYMENT.deployBlock, (key, summary) => {
+    // Shielded scan: only once note keys exist. Streams each asset in as it resolves and
+    // carries its own loading flag, kept separate from `loading` on purpose.
+    if (keys) {
+      setShieldedLoading(true)
+      withTimeout(
+        getShieldedBalances(readProvider, assets, keys, DEPLOYMENT.deployBlock, (key, summary) => {
           if (alive) setShielded((prev) => new Map(prev).set(key, summary))
-        }).catch((e) => console.error('shielded balances', e))
-      : Promise.resolve()
-
-    Promise.all([plain, priv]).finally(() => {
-      inFlight.current = false
-      if (!alive) return
-      setLoading(false)
+        }),
+        60000,
+      )
+        .catch((e) => console.error('shielded balances', e))
+        .finally(() => {
+          if (alive) {
+            setShieldedLoading(false)
+            setRefreshing(false)
+          }
+        })
+    } else {
+      setShieldedLoading(false)
       setRefreshing(false)
-    })
+    }
 
     return () => {
       alive = false
     }
-  }, [address, keys, tick])
+  }, [address, keys, tick, assets])
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 
@@ -285,12 +465,18 @@ export function AccountProvider({
     mode,
     setMode,
     toggleMode,
-    assets: ASSETS,
+    assets,
     asset,
     selectAsset: setAssetKey,
+    catalog,
+    addToken,
+    addTokenByAddress,
+    removeToken,
+    isDefaultAsset,
     wallet,
     shielded,
     loading,
+    shieldedLoading,
     refreshing,
     refresh,
     walletBalanceOf,

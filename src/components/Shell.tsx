@@ -3,7 +3,8 @@
  * body, and a bottom rail for the three flows. Sized for a 360px popup — in the
  * popped-out tab the same markup just centres itself in a wider column.
  */
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useAccountState, type WalletMode } from '../state'
 import type { Screen } from '../types'
 import {
@@ -50,6 +51,13 @@ export function Header({
   copied: boolean
 }) {
   const { refresh, refreshing, expand, go, mode, setMode } = useAccountState()
+  const { reveal, play } = useModeReveal()
+
+  const changeMode = (m: WalletMode) => {
+    if (m !== mode) play(m)
+    setMode(m)
+  }
+
   return (
     <header className="flex shrink-0 flex-col gap-2 border-b border-edge bg-panel/80 px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -79,8 +87,47 @@ export function Header({
           </IconBtn>
         </div>
       </div>
-      <ModeToggle mode={mode} onChange={setMode} />
+      <ModeToggle mode={mode} onChange={changeMode} />
+      <ModeReveal reveal={reveal} />
     </header>
+  )
+}
+
+/**
+ * Drives the transient full-popup reveal that fires on a mode switch. `play(m)`
+ * mounts an overlay tagged with the mode being entered; a timer clears it once the
+ * keyframe has run, so the element only lives for the beat it animates and can
+ * never linger or trap a click. A fresh switch mid-animation just restarts it.
+ */
+function useModeReveal() {
+  const [reveal, setReveal] = useState<WalletMode | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+
+  const play = (m: WalletMode) => {
+    if (timer.current) clearTimeout(timer.current)
+    // Remount so the animation replays even on a rapid back-to-back toggle.
+    setReveal(null)
+    requestAnimationFrame(() => setReveal(m))
+    timer.current = setTimeout(() => setReveal(null), m === 'private' ? 640 : 500)
+  }
+
+  return { reveal, play }
+}
+
+/** The cosmetic overlay itself, portalled onto <body> so it blankets the whole popup. */
+function ModeReveal({ reveal }: { reveal: WalletMode | null }) {
+  if (!reveal) return null
+  return createPortal(
+    <div
+      className={`mode-reveal ${reveal === 'normal' ? 'mode-reveal-normal' : ''}`}
+      aria-hidden="true"
+    >
+      <span className="mode-reveal-ring" />
+      <img src="./parallax/logo-mark.webp" alt="" className="mode-reveal-logo" />
+    </div>,
+    document.body,
   )
 }
 
@@ -95,16 +142,23 @@ function ModeToggle({ mode, onChange }: { mode: WalletMode; onChange: (m: Wallet
     <div
       role="tablist"
       aria-label="Wallet mode"
-      className="relative grid grid-cols-2 gap-1 rounded-xl border border-edge bg-panel2 p-1"
+      className="relative grid grid-cols-2 rounded-xl border border-edge bg-panel2 p-1"
     >
+      {/* The sliding pad that lives under the active side and glides between them. */}
+      <span
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-y-1 left-1 w-[calc(50%-0.25rem)] rounded-lg border transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out ${
+          priv
+            ? 'translate-x-[calc(100%+0.25rem)] border-gold/40 bg-gold/15 shadow-[0_2px_8px_-3px_rgba(205,179,96,0.5)]'
+            : 'translate-x-0 border-mint/40 bg-mint/15 shadow-[0_2px_8px_-3px_rgba(120,224,178,0.5)]'
+        }`}
+      />
       <button
         role="tab"
         aria-selected={!priv}
         onClick={() => onChange('normal')}
-        className={`press flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-semibold transition ${
-          !priv
-            ? 'bg-mint/15 text-mint ring-1 ring-inset ring-mint/40'
-            : 'text-muted hover:text-white/80'
+        className={`relative z-10 flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-semibold transition-colors duration-200 ${
+          !priv ? 'text-mint' : 'text-muted hover:text-white/80'
         }`}
       >
         <Wallet width={13} height={13} />
@@ -114,10 +168,8 @@ function ModeToggle({ mode, onChange }: { mode: WalletMode; onChange: (m: Wallet
         role="tab"
         aria-selected={priv}
         onClick={() => onChange('private')}
-        className={`press flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-semibold transition ${
-          priv
-            ? 'bg-gold/15 text-gold ring-1 ring-inset ring-gold/40'
-            : 'text-muted hover:text-white/80'
+        className={`relative z-10 flex items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] font-semibold transition-colors duration-200 ${
+          priv ? 'text-gold' : 'text-muted hover:text-white/80'
         }`}
       >
         <Shield width={13} height={13} />
@@ -152,26 +204,28 @@ function IconBtn({
 
 type RailItem = { id: Screen; label: string; icon: ReactNode }
 
+const ICON = 18
+
 const WALLET_ITEM: RailItem = {
   id: 'home',
   label: 'Wallet',
-  icon: <span className="text-[13px] leading-none">◈</span>,
+  icon: <Wallet width={ICON} height={ICON} />,
 }
 
 // Normal mode is a plain EOA wallet: money in (Receive) and money out (Send), no pool.
 const NORMAL_RAIL: RailItem[] = [
   WALLET_ITEM,
-  { id: 'send', label: 'Send', icon: <ArrowUp width={13} height={13} /> },
-  { id: 'receive', label: 'Receive', icon: <ArrowDown width={13} height={13} /> },
-  { id: 'settings', label: 'Settings', icon: <Cog width={13} height={13} /> },
+  { id: 'send', label: 'Send', icon: <ArrowUp width={ICON} height={ICON} /> },
+  { id: 'receive', label: 'Receive', icon: <ArrowDown width={ICON} height={ICON} /> },
+  { id: 'settings', label: 'Settings', icon: <Cog width={ICON} height={ICON} /> },
 ]
 
 // Private mode is the shielded pool: the three pool flows.
 const PRIVATE_RAIL: RailItem[] = [
   WALLET_ITEM,
-  { id: 'deposit', label: 'Deposit', icon: <ArrowDown width={13} height={13} /> },
-  { id: 'swap', label: 'Swap', icon: <SwapArrows width={13} height={13} /> },
-  { id: 'withdraw', label: 'Withdraw', icon: <ArrowUp width={13} height={13} /> },
+  { id: 'deposit', label: 'Deposit', icon: <ArrowDown width={ICON} height={ICON} /> },
+  { id: 'swap', label: 'Swap', icon: <SwapArrows width={ICON} height={ICON} /> },
+  { id: 'withdraw', label: 'Withdraw', icon: <ArrowUp width={ICON} height={ICON} /> },
 ]
 
 const RAIL_FOR: Record<WalletMode, RailItem[]> = {
@@ -182,21 +236,24 @@ const RAIL_FOR: Record<WalletMode, RailItem[]> = {
 export function BottomRail({ screen, onGo }: { screen: Screen; onGo: (s: Screen) => void }) {
   const { mode } = useAccountState()
   const rail = RAIL_FOR[mode]
+  const priv = mode === 'private'
   return (
-    <nav className="shrink-0 border-t border-edge bg-panel/90 px-2 py-2">
-      <div className="seg-rail">
-        {rail.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onGo(item.id)}
-            className={`seg flex items-center justify-center gap-1 ${
-              screen === item.id ? 'seg-on' : 'seg-off'
-            }`}
-          >
-            {item.icon}
-            <span className="truncate">{item.label}</span>
-          </button>
-        ))}
+    <nav className="shrink-0 border-t border-edge bg-panel/90 px-2 pb-2 pt-1.5 backdrop-blur-md">
+      <div className="tabbar">
+        {rail.map((item) => {
+          const active = screen === item.id
+          return (
+            <button
+              key={item.id}
+              onClick={() => onGo(item.id)}
+              aria-current={active ? 'page' : undefined}
+              className={`tab ${active ? (priv ? 'tab-on-priv' : 'tab-on') : 'tab-off'}`}
+            >
+              <span className="tab-icon">{item.icon}</span>
+              <span className="max-w-full truncate">{item.label}</span>
+            </button>
+          )
+        })}
       </div>
     </nav>
   )

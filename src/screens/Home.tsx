@@ -7,7 +7,7 @@
  * the wallet balance is the staging area you top it up from — so the layout says so
  * before any copy has to.
  */
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { fmtUnits, useAccountState } from '../state'
 import type { ActivityItem } from '../types'
 import { txUrl, type AssetMeta } from '@app/config'
@@ -16,11 +16,29 @@ import {
   ArrowUp,
   EmptyNote,
   ExternalLink,
+  Plus,
   Shield,
   SwapArrows,
   TokenIcon,
   Wallet,
 } from '../components/ui'
+import { AddToken } from '../components/AddToken'
+
+/** A small trash glyph — the icon set ships no delete, so this one lives here. Pure
+ *  `currentColor` SVG so it takes the row's colour like every other icon. */
+function Trash({ width = 13, height = 13 }: { width?: number; height?: number }) {
+  return (
+    <svg width={width} height={height} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V7m3 4v6m4-6v6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
 
 /** Balances are only ever missing while they are being fetched, so a null reads as
  *  "still loading" everywhere on this screen — never as a zero. */
@@ -39,10 +57,21 @@ export function Home() {
     wallet,
     shieldedBalanceOf,
     walletBalanceOf,
+    isDefaultAsset,
+    removeToken,
+    loading,
+    shieldedLoading,
+    signingIn,
     activity,
     go,
   } = useAccountState()
   const priv = mode === 'private'
+  const [addOpen, setAddOpen] = useState(false)
+
+  // In private mode a balance is only knowable once the scan (and the sign-in that
+  // gates it) has run; in normal mode it is the plain wallet fetch. Passed to each row
+  // so a not-yet-fetched figure reads as "unlocking/loading" rather than a hard zero.
+  const balancesLoading = priv ? shieldedLoading || signingIn : loading
 
   // In private mode the assets you hold privately float to the top; in normal mode the
   // ones with a wallet balance do. Below that the configured order stands, so the list
@@ -84,9 +113,20 @@ export function Home() {
       <section className="panel overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2.5">
           <span className="eyebrow">Assets</span>
-          <span className="text-[10px] uppercase tracking-wider text-muted">
-            {priv ? 'Private · Wallet' : 'Wallet'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted">
+              {priv ? 'Private · Wallet' : 'Wallet'}
+            </span>
+            {/* Add is available in BOTH modes: import/list in normal, import/delete in private. */}
+            <button
+              onClick={() => setAddOpen(true)}
+              aria-label="Add a token"
+              title="Add a token"
+              className="press grid h-6 w-6 place-items-center rounded-lg border border-edge bg-panel2 text-muted transition hover:border-mint/50 hover:text-mint"
+            >
+              <Plus width={13} height={13} />
+            </button>
+          </div>
         </div>
         <div className="border-t border-edge">
           {rows.map((a) => (
@@ -97,10 +137,24 @@ export function Home() {
               privateBalance={shieldedBalanceOf(a)}
               walletBalance={walletBalanceOf(a)}
               showPrivate={priv}
+              loading={balancesLoading}
+              removable={!isDefaultAsset(a.key)}
+              onRemove={() => removeToken(a.key)}
             />
           ))}
+          <button
+            onClick={() => setAddOpen(true)}
+            className="row w-full text-left text-muted transition hover:text-mint"
+          >
+            <span className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-lg border border-dashed border-edge text-current">
+              <Plus width={14} height={14} />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">Add a token</span>
+          </button>
         </div>
       </section>
+
+      <AddToken open={addOpen} onClose={() => setAddOpen(false)} />
 
       <section className="panel overflow-hidden">
         <div className="px-3 py-2.5">
@@ -280,38 +334,71 @@ function AssetRow({
   privateBalance,
   walletBalance,
   showPrivate,
+  loading,
+  removable,
+  onRemove,
 }: {
   asset: AssetMeta
   selected: boolean
   privateBalance: string | null
   walletBalance: string | null
   showPrivate: boolean
+  loading: boolean
+  removable: boolean
+  onRemove: () => void
 }) {
   const { selectAsset } = useAccountState()
+  // While balances are still loading a not-yet-arrived figure is genuinely unknown, so
+  // force the skeleton rather than letting a stray value read as final.
+  const priv = loading ? null : privateBalance
+  const plain = loading ? null : walletBalance
+
+  // The row is a group: tap the body to re-point the hero, tap the trash to drop a
+  // user-added token. A button can't nest a button, so the body is the button and the
+  // trash sits beside it.
   return (
-    <button
-      onClick={() => selectAsset(asset.key)}
-      aria-current={selected}
-      className={`row w-full text-left ${selected ? 'bg-mint/[0.06]' : ''}`}
+    <div
+      className={`row group w-full ${selected ? 'bg-mint/[0.06]' : ''}`}
     >
-      <TokenIcon symbol={asset.symbol} accent={asset.accent} size={26} src={asset.logoUrl} plain />
-      <span className="min-w-0 flex-1 leading-tight">
-        <span className="block truncate text-[13px] font-semibold text-white">{asset.symbol}</span>
-        <span className="block truncate text-[10.5px] text-muted">{asset.name}</span>
-      </span>
-      {/* The emphasised line is whichever balance the current mode is about; the other
-          rides underneath as context. In normal mode we lead with the wallet figure. */}
-      <span className="shrink-0 text-right leading-tight">
-        {showPrivate ? (
-          <>
-            <Amount value={privateBalance} className="num block text-[12px] text-gold" />
-            <Amount value={walletBalance} className="num block text-[10.5px] text-muted" />
-          </>
-        ) : (
-          <Amount value={walletBalance} className="num block text-[12px] text-white" />
-        )}
-      </span>
-    </button>
+      <button
+        onClick={() => selectAsset(asset.key)}
+        aria-current={selected}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <TokenIcon symbol={asset.symbol} accent={asset.accent} size={26} src={asset.logoUrl} plain />
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-[13px] font-semibold text-white">{asset.symbol}</span>
+          <span className="block truncate text-[10.5px] text-muted">{asset.name}</span>
+        </span>
+        {/* The emphasised line is whichever balance the current mode is about; the other
+            rides underneath as context. In normal mode we lead with the wallet figure. */}
+        <span className="shrink-0 text-right leading-tight">
+          {showPrivate ? (
+            <>
+              <Amount value={priv} className="num block text-[12px] text-gold" />
+              <Amount value={plain} className="num block text-[10.5px] text-muted" />
+            </>
+          ) : (
+            <Amount value={plain} className="num block text-[12px] text-white" />
+          )}
+        </span>
+      </button>
+      {/* Only user-added tokens get a delete — ETH/USDG/$SHERWOOD are guarded upstream by
+          isDefaultAsset, and removeToken is a no-op on them anyway. */}
+      {removable && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+          aria-label={`Remove ${asset.symbol}`}
+          title={`Remove ${asset.symbol}`}
+          className="press grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-transparent text-muted transition hover:border-neg/40 hover:bg-neg/10 hover:text-neg"
+        >
+          <Trash width={13} height={13} />
+        </button>
+      )}
+    </div>
   )
 }
 

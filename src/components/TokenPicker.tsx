@@ -10,7 +10,8 @@
  */
 import { useMemo, useState } from 'react'
 import type { AssetMeta } from '@app/config'
-import { ChevronDown, Close, TokenIcon } from './ui'
+import { ChevronDown, Close, Plus, TokenIcon } from './ui'
+import { AddToken } from './AddToken'
 
 export function TokenPicker({
   assets,
@@ -22,6 +23,9 @@ export function TokenPicker({
   isDisabled,
   disabledLabel = 'after migration',
   label,
+  /** Surface an "Add a token" entry that opens the AddToken sheet. Off by default so
+   *  flows that only move existing holdings stay lean; opt in where discovery helps. */
+  allowAdd = false,
 }: {
   assets: AssetMeta[]
   value: string
@@ -30,9 +34,11 @@ export function TokenPicker({
   isDisabled?: (asset: AssetMeta) => boolean
   disabledLabel?: string
   label?: string
+  allowAdd?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
 
   const selected = useMemo(
     () => assets.find((a) => a.key === value) ?? assets[0],
@@ -125,9 +131,24 @@ export function TokenPicker({
                 </button>
               )
             })}
+
+            {allowAdd && (
+              <button
+                type="button"
+                onClick={() => setAddOpen(true)}
+                className="mt-1 flex w-full items-center gap-2.5 rounded-xl border border-dashed border-edge px-3 py-2.5 text-left text-muted transition-colors duration-150 hover:border-mint/50 hover:text-mint"
+              >
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-current/40">
+                  <Plus width={14} height={14} />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">Add a token</span>
+              </button>
+            )}
           </div>
         </div>
       )}
+
+      {allowAdd && <AddToken open={addOpen} onClose={() => setAddOpen(false)} />}
     </>
   )
 }

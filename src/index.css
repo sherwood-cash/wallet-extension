@@ -190,6 +190,69 @@ html.view-tab body {
     @apply cursor-not-allowed opacity-40;
   }
 
+  /* ---- bottom tab bar -----------------------------------------------------
+     The primary navigation. A blurred, gilt-lit ledge pinned to the floor of the
+     popup. Each tab is an icon stacked over a small label; the active tab lifts
+     onto a coloured pad (mint in normal, gold in private) with a filled glyph. */
+  .tabbar {
+    @apply relative flex items-stretch gap-1;
+  }
+  /* A brighter hairline across the very top edge so the bar reads as a lit ledge. */
+  .tabbar::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -1px;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(227, 209, 153, 0.28),
+      transparent
+    );
+    pointer-events: none;
+  }
+  .tab {
+    @apply press relative flex flex-1 flex-col items-center justify-center gap-1 rounded-xl
+           px-1 py-1.5 text-[10px] font-semibold leading-none
+           transition-[color,background-color,box-shadow,transform] duration-200 ease-out;
+    min-height: 52px;
+  }
+  .tab-icon {
+    @apply grid h-6 w-6 place-items-center transition-transform duration-200 ease-out;
+  }
+  .tab-off {
+    @apply text-muted hover:bg-white/[0.05] hover:text-white/90;
+  }
+  .tab-off:active {
+    transform: translateY(1px);
+  }
+  /* Active tab in Normal mode — mint pad + glow. */
+  .tab-on {
+    @apply text-mint;
+    background: linear-gradient(180deg, rgba(120, 224, 178, 0.14), rgba(120, 224, 178, 0.05));
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+      0 4px 12px -6px rgba(120, 224, 178, 0.5);
+  }
+  .tab-on .tab-icon {
+    transform: translateY(-1px) scale(1.06);
+    filter: drop-shadow(0 2px 5px rgba(120, 224, 178, 0.4));
+  }
+  /* Active tab in Private mode — gold pad + glow. */
+  .tab-on-priv {
+    @apply text-gold;
+    background: linear-gradient(180deg, rgba(227, 209, 153, 0.16), rgba(227, 209, 153, 0.05));
+    box-shadow:
+      0 1px 0 0 rgba(255, 255, 255, 0.06) inset,
+      0 4px 12px -6px rgba(205, 179, 96, 0.55);
+  }
+  .tab-on-priv .tab-icon {
+    transform: translateY(-1px) scale(1.06);
+    filter: drop-shadow(0 2px 5px rgba(205, 179, 96, 0.45));
+  }
+
   /* ---- list rows ---------------------------------------------------------- */
   .row {
     @apply flex items-center gap-2.5 rounded-lg border-b border-edge/40 px-3 py-3
@@ -247,6 +310,106 @@ html.view-tab body {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* ---- mode-switch reveal ---------------------------------------------------
+   When you drop into (or out of) Private mode the Sherwood mark blooms across the
+   whole popup: a soft, gilt-mint scrim fades up, the logo scales in with a shield
+   glow, then the whole thing fades away to reveal the new view. Purely cosmetic —
+   the element is mounted only for the beat it plays and never traps a click. */
+.mode-reveal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  overflow: hidden;
+  background: radial-gradient(
+    120% 90% at 50% 42%,
+    rgba(205, 179, 96, 0.16),
+    rgba(11, 13, 10, 0.72) 55%,
+    rgba(11, 13, 10, 0.94)
+  );
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: reveal-scrim 620ms ease-out forwards;
+}
+/* The lighter fade back to Normal — same scrim, cooler tint, no lingering. */
+.mode-reveal.mode-reveal-normal {
+  background: radial-gradient(
+    120% 90% at 50% 42%,
+    rgba(120, 224, 178, 0.12),
+    rgba(11, 13, 10, 0.6) 55%,
+    rgba(11, 13, 10, 0.88)
+  );
+  animation-duration: 480ms;
+}
+.mode-reveal-logo {
+  width: 88px;
+  height: 88px;
+  border-radius: 22px;
+  animation: reveal-logo 620ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.mode-reveal-normal .mode-reveal-logo {
+  animation-duration: 480ms;
+}
+/* The shield ring — a soft halo that pulses out from behind the mark. */
+.mode-reveal-ring {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 9999px;
+  border: 1.5px solid rgba(227, 209, 153, 0.55);
+  box-shadow: 0 0 34px 6px rgba(205, 179, 96, 0.35);
+  animation: reveal-ring 620ms ease-out forwards;
+}
+.mode-reveal-normal .mode-reveal-ring {
+  border-color: rgba(120, 224, 178, 0.55);
+  box-shadow: 0 0 34px 6px rgba(120, 224, 178, 0.35);
+  animation-duration: 480ms;
+}
+
+@keyframes reveal-scrim {
+  0% { opacity: 0; }
+  22% { opacity: 1; }
+  62% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes reveal-logo {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+    filter: drop-shadow(0 0 0 rgba(205, 179, 96, 0));
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.08);
+    filter: drop-shadow(0 6px 26px rgba(205, 179, 96, 0.6));
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.02);
+    filter: drop-shadow(0 6px 18px rgba(205, 179, 96, 0));
+  }
+}
+@keyframes reveal-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  35% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
   }
 }
 
