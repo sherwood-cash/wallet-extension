@@ -62,29 +62,35 @@ export function Header({
     <header className="flex shrink-0 flex-col gap-2 border-b border-edge bg-panel/80 px-3 py-2.5">
       <div className="flex items-center gap-2">
         <Wordmark />
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1.5">
           {address && (
             <button
               onClick={onCopy}
               title="Copy address"
-              className="press flex items-center gap-1.5 rounded-lg border border-edge bg-panel2 px-2 py-1.5 font-mono text-[11px] text-white/85 transition hover:border-edgeLit"
+              className="group flex items-center gap-1.5 whitespace-nowrap rounded-full border border-edge/70 bg-ink/60 px-2.5 py-1.5 font-mono text-[11px] leading-none text-white/80 shadow-soft transition active:scale-[0.97] hover:border-gold/45 hover:text-white"
             >
-              {copied ? <span className="text-mint">copied</span> : short(address)}
-              <Copy width={12} height={12} className="text-muted" />
+              {copied ? (
+                <span className="text-mint">copied</span>
+              ) : (
+                <span className="tracking-tight">{short(address)}</span>
+              )}
+              <Copy width={12} height={12} className="text-muted transition group-hover:text-gold" />
             </button>
           )}
-          <IconBtn label="Refresh balances" onClick={refresh} spin={refreshing}>
-            <Refresh width={14} height={14} />
-          </IconBtn>
-          <IconBtn label="Open in a tab" onClick={expand}>
-            <ExternalLink width={14} height={14} />
-          </IconBtn>
-          <IconBtn label="Settings" onClick={() => go('settings')}>
-            <Cog width={14} height={14} />
-          </IconBtn>
-          <IconBtn label="Lock wallet" onClick={onLock}>
-            <LogOut width={14} height={14} />
-          </IconBtn>
+          <div className="flex items-center gap-0.5 rounded-full border border-edge/60 bg-ink/50 p-0.5 shadow-soft">
+            <IconBtn label="Refresh balances" onClick={refresh} spin={refreshing}>
+              <Refresh width={15} height={15} />
+            </IconBtn>
+            <IconBtn label="Open in a tab" onClick={expand}>
+              <ExternalLink width={15} height={15} />
+            </IconBtn>
+            <IconBtn label="Settings" onClick={() => go('settings')}>
+              <Cog width={15} height={15} />
+            </IconBtn>
+            <IconBtn label="Lock wallet" onClick={onLock}>
+              <LogOut width={15} height={15} />
+            </IconBtn>
+          </div>
         </div>
       </div>
       <ModeToggle mode={mode} onChange={changeMode} />
@@ -195,7 +201,7 @@ function IconBtn({
       onClick={onClick}
       title={label}
       aria-label={label}
-      className="press grid h-7 w-7 place-items-center rounded-lg border border-edge bg-panel2 text-muted transition hover:border-edgeLit hover:text-white"
+      className="grid h-8 w-8 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-panel2 hover:text-gold active:scale-90"
     >
       <span className={spin ? 'inline-block animate-spin' : undefined}>{children}</span>
     </button>
