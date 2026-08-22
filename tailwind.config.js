@@ -62,10 +62,16 @@ export default {
         glow: '0 0 40px -14px rgba(194,176,103,0.45)',
         // Panels sit on the forest backdrop, so they need a drop — but a soft one.
         // The hard "sticker ledge" is spent only on the two things you press.
-        card: '0 1px 0 0 rgba(255,255,255,0.03) inset, 0 24px 48px -28px rgba(0,0,0,0.95)',
+        card: '0 1px 0 0 rgba(255,255,255,0.04) inset, 0 1px 2px 0 rgba(0,0,0,0.4), 0 24px 48px -28px rgba(0,0,0,0.95)',
         nub: '0 1px 2px 0 rgba(0,0,0,0.5)',
         // A pressable key. Paired with .press, which flattens it on :active.
         key: '0 3px 0 0 var(--key-shadow, rgba(4,12,8,0.7))',
+        // The premium gilt CTA: a coloured glow + a fine top highlight so the
+        // button reads as a lit, tactile surface rather than a flat fill.
+        gilt: '0 1px 0 0 rgba(255,255,255,0.28) inset, 0 2px 0 0 theme(colors.mintDeep), 0 8px 20px -8px rgba(205,179,96,0.55)',
+        giltHover: '0 1px 0 0 rgba(255,255,255,0.34) inset, 0 3px 0 0 theme(colors.mintDeep), 0 12px 28px -8px rgba(205,179,96,0.7)',
+        // Ghost / secondary surfaces: a whisper of a top highlight, no glow.
+        soft: '0 1px 0 0 rgba(255,255,255,0.05) inset, 0 2px 6px -2px rgba(0,0,0,0.5)',
       },
       keyframes: {
         'fade-in': {

@@ -30,41 +30,63 @@ function Amount({ value, className = '' }: { value: string | null; className?: s
 }
 
 export function Home() {
-  const { asset, assets, shielded, shieldedBalanceOf, walletBalanceOf, activity, go } =
-    useAccountState()
+  const {
+    mode,
+    setMode,
+    asset,
+    assets,
+    shielded,
+    wallet,
+    shieldedBalanceOf,
+    walletBalanceOf,
+    activity,
+    go,
+  } = useAccountState()
+  const priv = mode === 'private'
 
-  // Assets you actually hold privately float to the top; below that the configured order
-  // stands, so the list does not reshuffle itself every time a scan lands.
+  // In private mode the assets you hold privately float to the top; in normal mode the
+  // ones with a wallet balance do. Below that the configured order stands, so the list
+  // does not reshuffle itself every time a scan lands.
   const rows = useMemo(() => {
-    const held = (a: AssetMeta) => shielded.get(a.key)?.balance.gt(0) ?? false
+    const held = priv
+      ? (a: AssetMeta) => shielded.get(a.key)?.balance.gt(0) ?? false
+      : (a: AssetMeta) => wallet.get(a.key)?.token.gt(0) ?? false
     return [...assets].sort((a, b) => Number(held(b)) - Number(held(a)))
-  }, [assets, shielded])
+  }, [priv, assets, shielded, wallet])
 
   return (
     <div className="space-y-3">
       <BalanceHero />
 
-      <div className="grid grid-cols-4 gap-1.5">
-        <QuickAction label="Deposit" onClick={() => go('deposit')}>
-          <ArrowDown width={15} height={15} />
-        </QuickAction>
-        <QuickAction label="Swap" onClick={() => go('swap')}>
-          <SwapArrows width={15} height={15} />
-        </QuickAction>
-        <QuickAction label="Withdraw" onClick={() => go('withdraw')}>
-          <ArrowUp width={15} height={15} />
-        </QuickAction>
-        {/* Receive is the plain wallet's own address, not a pool action — the wallet
-            glyph keeps it from reading as a fourth privacy flow. */}
-        <QuickAction label="Receive" onClick={() => go('receive')}>
-          <Wallet width={15} height={15} />
-        </QuickAction>
-      </div>
+      {priv ? (
+        <div className="grid grid-cols-3 gap-1.5">
+          <QuickAction label="Deposit" onClick={() => go('deposit')}>
+            <ArrowDown width={15} height={15} />
+          </QuickAction>
+          <QuickAction label="Swap" onClick={() => go('swap')}>
+            <SwapArrows width={15} height={15} />
+          </QuickAction>
+          <QuickAction label="Withdraw" onClick={() => go('withdraw')}>
+            <ArrowUp width={15} height={15} />
+          </QuickAction>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-1.5">
+          <QuickAction label="Send" onClick={() => go('send')}>
+            <ArrowUp width={15} height={15} />
+          </QuickAction>
+          <QuickAction label="Receive" onClick={() => go('receive')}>
+            <ArrowDown width={15} height={15} />
+          </QuickAction>
+        </div>
+      )}
 
       <section className="panel overflow-hidden">
         <div className="flex items-center justify-between px-3 py-2.5">
           <span className="eyebrow">Assets</span>
-          <span className="text-[10px] uppercase tracking-wider text-muted">Private · Wallet</span>
+          <span className="text-[10px] uppercase tracking-wider text-muted">
+            {priv ? 'Private · Wallet' : 'Wallet'}
+          </span>
         </div>
         <div className="border-t border-edge">
           {rows.map((a) => (
@@ -74,6 +96,7 @@ export function Home() {
               selected={a.key === asset.key}
               privateBalance={shieldedBalanceOf(a)}
               walletBalance={walletBalanceOf(a)}
+              showPrivate={priv}
             />
           ))}
         </div>
@@ -99,29 +122,52 @@ export function Home() {
         )}
       </section>
 
-      {/* The plain balances above are unaffected by the pool, and a plain transfer is the
-          one thing the rail has no room for — it hangs off the wallet figure it spends. */}
-      <p className="pb-1 text-center text-[11px] text-muted">
-        Moving funds without the pool?{' '}
-        <button onClick={() => go('send')} className="font-semibold text-mint hover:underline">
-          Send from the wallet
-        </button>
-      </p>
+      {priv ? (
+        // In private mode a plain transfer is the one thing the rail has no room for —
+        // it hangs off the wallet figure it spends.
+        <p className="pb-1 text-center text-[11px] text-muted">
+          Moving funds without the pool?{' '}
+          <button onClick={() => go('send')} className="font-semibold text-mint hover:underline">
+            Send from the wallet
+          </button>
+        </p>
+      ) : (
+        // In normal mode the way "up" is into the pool — the deposit flow, which is
+        // only reachable from private mode's rail, so point at it here.
+        <p className="pb-1 text-center text-[11px] text-muted">
+          Want to shield your balance?{' '}
+          <button onClick={() => setMode('private')} className="font-semibold text-gold hover:underline">
+            Go private
+          </button>
+        </p>
+      )}
     </div>
   )
 }
 
-/** The selected asset's private balance, large. Everything else on the screen is a way
+/** The selected asset's headline balance, large. In private mode that is the shielded
+ *  figure; in normal mode the plain wallet figure. Everything else on the screen is a way
  *  of getting to this number or of pointing it at a different asset. */
 function BalanceHero() {
-  const { asset, shieldedBalanceOf, walletBalanceOf, shielded, signingIn } = useAccountState()
+  const { mode } = useAccountState()
+  return mode === 'private' ? <PrivateHero /> : <NormalHero />
+}
+
+/** Private face: the shielded balance leads, with the plain wallet as the staging area
+ *  below it and the note breakdown that explains a capped single spend. */
+function PrivateHero() {
+  const { asset, shieldedBalanceOf, walletBalanceOf, shielded, signingIn, keys } =
+    useAccountState()
   const priv = shieldedBalanceOf(asset)
   const summary = shielded.get(asset.key)
+  // The shielded scan can only run once note-spending keys exist; until then the figure
+  // is genuinely unknown rather than zero, so keep it as a "still unlocking" skeleton.
+  const unlocking = signingIn || !keys
 
   return (
     <section className="card">
       <div className="relative flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 text-mint">
+        <span className="flex items-center gap-1.5 text-gold">
           <Shield width={13} height={13} />
           <span className="text-[11px] font-semibold uppercase tracking-wider">Private</span>
         </span>
@@ -155,8 +201,50 @@ function BalanceHero() {
           </span>
         </div>
       )}
-      {signingIn && priv === null && (
+      {unlocking && priv === null && (
         <div className="relative mt-1 text-[11px] text-moss">Unlocking your private balances…</div>
+      )}
+    </section>
+  )
+}
+
+/** Normal face: a plain EOA wallet. The wallet balance leads, and the private balance is
+ *  demoted to a one-line hint — a place to go, not the headline. */
+function NormalHero() {
+  const { asset, walletBalanceOf, shieldedBalanceOf } = useAccountState()
+  const bal = walletBalanceOf(asset)
+  const priv = shieldedBalanceOf(asset)
+
+  return (
+    <section className="card">
+      <div className="relative flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-mint">
+          <Wallet width={13} height={13} />
+          <span className="text-[11px] font-semibold uppercase tracking-wider">Wallet</span>
+        </span>
+        <TokenIcon symbol={asset.symbol} accent={asset.accent} size={26} src={asset.logoUrl} />
+      </div>
+
+      <div className="relative mt-2 flex items-baseline gap-2">
+        {bal === null ? (
+          <span className="skeleton h-7 w-32" />
+        ) : (
+          <span className="num min-w-0 truncate text-[28px] font-semibold leading-none">{bal}</span>
+        )}
+        <span className="shrink-0 text-[13px] font-semibold text-muted">{asset.symbol}</span>
+      </div>
+
+      {priv !== null && priv !== '0' && (
+        <div className="relative mt-3 flex items-baseline justify-between gap-2 border-t border-edge pt-2.5 text-[11.5px]">
+          <span className="flex items-center gap-1 text-gold">
+            <Shield width={11} height={11} />
+            <span>Private</span>
+          </span>
+          <span className="min-w-0 truncate text-right">
+            <span className="num text-[12px] text-white/85">{priv}</span>{' '}
+            <span className="text-muted">{asset.symbol}</span>
+          </span>
+        </div>
       )}
     </section>
   )
@@ -191,11 +279,13 @@ function AssetRow({
   selected,
   privateBalance,
   walletBalance,
+  showPrivate,
 }: {
   asset: AssetMeta
   selected: boolean
   privateBalance: string | null
   walletBalance: string | null
+  showPrivate: boolean
 }) {
   const { selectAsset } = useAccountState()
   return (
@@ -209,9 +299,17 @@ function AssetRow({
         <span className="block truncate text-[13px] font-semibold text-white">{asset.symbol}</span>
         <span className="block truncate text-[10.5px] text-muted">{asset.name}</span>
       </span>
+      {/* The emphasised line is whichever balance the current mode is about; the other
+          rides underneath as context. In normal mode we lead with the wallet figure. */}
       <span className="shrink-0 text-right leading-tight">
-        <Amount value={privateBalance} className="num block text-[12px] text-mint" />
-        <Amount value={walletBalance} className="num block text-[10.5px] text-muted" />
+        {showPrivate ? (
+          <>
+            <Amount value={privateBalance} className="num block text-[12px] text-gold" />
+            <Amount value={walletBalance} className="num block text-[10.5px] text-muted" />
+          </>
+        ) : (
+          <Amount value={walletBalance} className="num block text-[12px] text-white" />
+        )}
       </span>
     </button>
   )

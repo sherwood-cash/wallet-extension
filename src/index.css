@@ -46,66 +46,84 @@ html.view-tab body {
 @layer components {
   /* ---- surfaces ---------------------------------------------------------- */
   .card {
-    @apply relative rounded-2xl border border-edge bg-panel/95 p-4 shadow-card;
+    @apply relative rounded-2xl border border-edge/80 bg-panel/95 p-4 shadow-card;
   }
   .panel {
-    @apply relative rounded-2xl border border-edge bg-panel/95 shadow-card;
+    @apply relative rounded-2xl border border-edge/80 bg-panel/95 shadow-card;
   }
-  /* The canopy light across the top of every panel — the app's tell. */
+  /* The canopy light across the top of every panel — the app's tell. A hairline
+     gilt highlight along the very top edge sharpens it into a lit surface. */
   .card::before,
   .panel::before {
     content: '';
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: linear-gradient(180deg, rgba(224, 211, 160, 0.05), transparent 34%);
+    background: linear-gradient(180deg, rgba(224, 211, 160, 0.06), transparent 40%);
+    box-shadow: 0 1px 0 0 rgba(227, 209, 153, 0.07) inset;
     pointer-events: none;
   }
   .inset {
-    @apply rounded-xl border border-edge bg-panel2;
+    @apply rounded-xl border border-edge/80 bg-panel2;
   }
   .stat {
-    @apply rounded-xl border border-edge bg-panel2 px-3 py-2;
+    @apply rounded-xl border border-edge/80 bg-panel2 px-3 py-2;
   }
 
   /* ---- forms ------------------------------------------------------------- */
   .input {
-    @apply min-h-[46px] w-full rounded-xl border border-edge bg-ink px-3 py-2.5 text-base text-white outline-none
-           transition focus:border-mint focus:ring-2 focus:ring-mint/25 placeholder:text-muted/50;
+    @apply h-12 min-h-[48px] w-full rounded-xl border border-edge bg-ink px-3.5 text-base text-white outline-none
+           shadow-[0_1px_2px_0_rgba(0,0,0,0.35)_inset] transition-[border-color,box-shadow,background-color] duration-150
+           placeholder:text-muted/40 hover:border-edgeLit
+           focus:border-mint focus:ring-2 focus:ring-mint/30 focus:bg-ink;
   }
   .select {
-    @apply flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-edge bg-ink px-2.5 py-2
-           text-left text-white outline-none transition hover:border-edgeLit focus:border-mint;
+    @apply flex h-12 min-h-[48px] w-full items-center justify-between gap-2 rounded-xl border border-edge bg-ink px-3
+           text-left text-white outline-none shadow-[0_1px_2px_0_rgba(0,0,0,0.35)_inset]
+           transition-[border-color,box-shadow,background-color] duration-150
+           hover:border-edgeLit focus:border-mint focus:ring-2 focus:ring-mint/30;
   }
 
   /* ---- buttons ------------------------------------------------------------
      `.press` is the app's one cartoon flourish: a hard ledge that collapses when
      you push, so the control physically travels. Spent only on things you hit. */
   .press {
-    @apply transition-[transform,box-shadow,background-color,border-color] duration-100;
+    @apply transition-[transform,box-shadow,background-color,border-color,filter] duration-100 ease-out;
+  }
+  .press:not(:disabled):hover {
+    transform: translateY(-1px);
   }
   .press:not(:disabled):active {
-    transform: translateY(3px);
+    transform: translateY(2px);
     box-shadow: none !important;
+    filter: brightness(0.98);
   }
 
   .btn {
-    @apply press inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-semibold
-           disabled:cursor-not-allowed disabled:opacity-40;
+    @apply press inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold
+           disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:transform-none;
   }
+  /* The gilt keys — a soft top highlight over the fill, a coloured glow beneath,
+     and the pressed ledge below that, so they read as tactile, lit surfaces. */
   .btn-primary {
-    @apply btn bg-mint text-[#0f0d06] shadow-[0_3px_0_0_theme(colors.mintDeep)] hover:bg-mintBright;
+    @apply btn bg-gradient-to-b from-mintBright to-mint text-[#1a1405] shadow-gilt
+           hover:from-mintBright hover:to-mintBright hover:shadow-giltHover
+           disabled:from-mint disabled:to-mint disabled:shadow-[0_2px_0_0_rgba(4,12,8,0.5)];
   }
   .btn-ghost {
-    @apply btn border border-edge bg-panel2 text-white hover:border-edgeLit hover:bg-panel;
+    @apply btn border border-edge bg-gradient-to-b from-panel2 to-ink text-white shadow-soft
+           hover:border-edgeLit hover:from-panel2 hover:to-panel2;
   }
   .btn-cta {
-    @apply press flex w-full items-center justify-center gap-2 rounded-xl bg-mint px-4 py-3 text-[14px] font-extrabold
-           text-[#0f0d06] shadow-[0_3px_0_0_theme(colors.mintDeep)] hover:bg-mintBright
-           disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-[0_3px_0_0_rgba(4,12,8,0.5)];
+    @apply press flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-b from-mintBright to-mint
+           px-4 py-3.5 text-[14px] font-extrabold tracking-[0.01em] text-[#1a1405] shadow-gilt
+           hover:from-mintBright hover:to-mintBright hover:shadow-giltHover
+           disabled:cursor-not-allowed disabled:opacity-40 disabled:from-mint disabled:to-mint
+           disabled:shadow-[0_2px_0_0_rgba(4,12,8,0.5)] disabled:hover:transform-none;
   }
   .btn-danger {
-    @apply btn border border-neg/40 bg-neg/10 text-neg hover:border-neg/70 hover:bg-neg/20;
+    @apply btn border border-neg/40 bg-neg/[0.08] text-neg shadow-soft
+           hover:border-neg/70 hover:bg-neg/20;
   }
 
   /* ---- labels & chrome ---------------------------------------------------- */
@@ -131,21 +149,51 @@ html.view-tab body {
 
   /* ---- segmented tabs (Deposit / Swap / Withdraw) ------------------------- */
   .seg-rail {
-    @apply no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-edge bg-ink/70 p-0.5;
+    @apply no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-edge bg-ink/80
+           p-1 shadow-[0_1px_2px_0_rgba(0,0,0,0.35)_inset];
   }
   .seg {
-    @apply press min-w-0 flex-1 shrink-0 rounded-lg px-2 py-1.5 text-[12px] font-semibold;
+    @apply min-w-0 flex-1 shrink-0 rounded-lg px-2 py-1.5 text-[12px] font-semibold
+           transition-[color,background-color,box-shadow,transform] duration-200 ease-out;
   }
   .seg-on {
-    @apply bg-mint text-[#0f0d06] shadow-[0_2px_0_0_theme(colors.mintDeep)];
+    @apply bg-gradient-to-b from-mintBright to-mint text-[#1a1405]
+           shadow-[0_1px_0_0_rgba(255,255,255,0.25)_inset,0_2px_6px_-2px_rgba(205,179,96,0.5)];
   }
   .seg-off {
-    @apply text-muted hover:bg-white/5 hover:text-white;
+    @apply text-muted hover:bg-white/[0.06] hover:text-white active:scale-[0.97];
+  }
+
+  /* ---- toggle / pill switch ----------------------------------------------
+     A reusable on/off switch. Apply `.toggle` to the track element and add
+     `.toggle-on` when active; nest a `.toggle-knob` for the sliding gilt knob:
+       <button class="toggle toggle-on"><span class="toggle-knob"/></button>
+     Off is a quiet inset well; on lights the track gilt and slides the knob. */
+  .toggle {
+    @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border border-edge
+           bg-ink px-0.5 shadow-[0_1px_2px_0_rgba(0,0,0,0.4)_inset]
+           transition-[background-color,border-color,box-shadow] duration-200 ease-out
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint/40;
+  }
+  .toggle-knob {
+    @apply pointer-events-none block h-[18px] w-[18px] translate-x-0 rounded-full bg-gradient-to-b from-white to-[#cfcdc4]
+           shadow-[0_1px_2px_0_rgba(0,0,0,0.5)] transition-transform duration-200 ease-out;
+  }
+  .toggle-on {
+    @apply border-mint/60 bg-gradient-to-b from-mintBright to-mint
+           shadow-[0_1px_0_0_rgba(255,255,255,0.2)_inset,0_2px_8px_-2px_rgba(205,179,96,0.55)];
+  }
+  .toggle-on .toggle-knob {
+    @apply translate-x-[20px] from-white to-mintBright;
+  }
+  .toggle:disabled {
+    @apply cursor-not-allowed opacity-40;
   }
 
   /* ---- list rows ---------------------------------------------------------- */
   .row {
-    @apply flex items-center gap-2.5 border-b border-edge/50 px-3 py-2.5 transition last:border-b-0 hover:bg-white/[0.03];
+    @apply flex items-center gap-2.5 rounded-lg border-b border-edge/40 px-3 py-3
+           transition-colors duration-150 last:border-b-0 hover:bg-white/[0.04];
   }
 
   .skeleton {

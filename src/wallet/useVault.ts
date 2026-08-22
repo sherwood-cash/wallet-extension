@@ -15,18 +15,23 @@
 import { useMemo, useSyncExternalStore } from 'react'
 import { ethers } from 'ethers'
 import {
+  addHdAccount,
   connectSigner,
   createWallet,
   describeError,
   endSession,
   importWallet,
   loadAccount,
+  loadAccounts,
+  renameHdAccount,
   resumeSession,
   revealSecret,
   sessionExpired,
   startSession,
+  switchActiveAccount,
   unlockWallet,
   wipeVault,
+  type HdAccount,
   type UnlockedKey,
 } from './vault'
 
@@ -44,6 +49,22 @@ export interface VaultApi {
    * this as a percentage rather than letting the popup look frozen.
    */
   progress: number
+  /**
+   * Every HD account this wallet knows about: index, address and optional label. A
+   * wallet imported from a raw private key has exactly one entry and cannot grow —
+   * `canAddAccount` says so — because it has no mnemonic to derive further accounts from.
+   */
+  accounts: HdAccount[]
+  /** The HD derivation index of the account `address`/`signer` currently belong to. */
+  activeIndex: number
+  /** False for a raw-private-key import (no mnemonic → no further derivation possible). */
+  canAddAccount: boolean
+  /** Derive the next HD account and switch to it. No-op label is fine. */
+  addAccount(label?: string): Promise<void>
+  /** Make the account at `index` the active one; flips `address`/`signer` downstream. */
+  switchAccount(index: number): Promise<void>
+  /** Rename an account. Cosmetic; an empty label reverts to the default name. */
+  renameAccount(index: number, label: string): Promise<void>
   /** Create a brand-new wallet. Returns the 12-word mnemonic to show ONCE. */
   create(password: string): Promise<string>
   /**
@@ -76,6 +97,11 @@ interface VaultState {
   /** The live signer. Holding it here rather than the bare key means the popup keeps
    *  exactly one Wallet object, and the key itself has one fewer place to sit. */
   signer: ethers.Wallet | null
+  /** The persisted HD account registry, mirrored into the store so Settings can list it. */
+  accounts: HdAccount[]
+  activeIndex: number
+  /** Whether the active wallet has a mnemonic behind it (only then can accounts grow). */
+  canAddAccount: boolean
   busy: boolean
   error: string | null
   progress: number
@@ -85,6 +111,9 @@ let state: VaultState = {
   status: 'loading',
   address: null,
   signer: null,
+  accounts: [],
+  activeIndex: 0,
+  canAddAccount: false,
   busy: false,
   error: null,
   progress: 0,
@@ -143,16 +172,24 @@ async function boot(): Promise<void> {
   if (!account) return setState({ status: 'empty' })
 
   const session = await resumeSession()
-  if (session) adopt(session)
+  if (session) await adopt(session)
   else setState({ status: 'locked', address: account.address, signer: null })
 }
 
-/** Take ownership of a decrypted key: this is the only path to `status: 'unlocked'`. */
-function adopt(key: UnlockedKey): void {
+/** Take ownership of a decrypted key: this is the only path to `status: 'unlocked'`.
+ *  Also refreshes the account registry, since a fresh unlock is the first chance the
+ *  store has to know how many accounts exist and which one is active. */
+async function adopt(key: UnlockedKey): Promise<void> {
+  const list = await loadAccounts()
   setState({
     status: 'unlocked',
     address: key.address,
     signer: connectSigner(key.privateKey),
+    accounts: list?.accounts ?? [{ index: key.index, address: key.address }],
+    activeIndex: key.index,
+    // Only an HD wallet (one with a mnemonic) can derive more accounts. A raw-key import
+    // returns mnemonic: null and stays a single account.
+    canAddAccount: key.mnemonic !== null,
     error: null,
   })
 }
@@ -188,7 +225,7 @@ let pending: UnlockedKey | null = null
 async function create(password: string): Promise<string> {
   return run('The wallet could not be created.', async () => {
     const made = await createWallet(password, reportProgress)
-    pending = { address: made.address, privateKey: made.privateKey }
+    pending = { address: made.address, privateKey: made.privateKey, index: made.index, mnemonic: made.mnemonic }
     return made.mnemonic
   })
 }
@@ -197,7 +234,7 @@ function activate(): void {
   const held = pending
   if (!held) return
   pending = null
-  adopt(held)
+  void adopt(held)
   // Only now does the key reach session storage: a popup closed on the phrase screen
   // should come back locked, not signed in behind a recovery phrase nobody read.
   void startSession(held)
@@ -205,13 +242,13 @@ function activate(): void {
 
 async function importSecret(secret: string, password: string): Promise<void> {
   await run('The wallet could not be imported.', async () => {
-    adopt(await importWallet(secret, password, reportProgress))
+    await adopt(await importWallet(secret, password, reportProgress))
   })
 }
 
 async function unlock(password: string): Promise<void> {
   await run('The wallet could not be unlocked.', async () => {
-    adopt(await unlockWallet(password, reportProgress))
+    await adopt(await unlockWallet(password, reportProgress))
   })
 }
 
@@ -226,11 +263,47 @@ async function reveal(password: string): Promise<{ mnemonic: string | null; priv
   return run('The recovery phrase could not be read.', () => revealSecret(password, reportProgress))
 }
 
+/**
+ * Derive the next HD account and switch to it. Adopting the new key flips `address` and
+ * `signer`, which <state.tsx> watches to re-derive the shielded keys and refetch
+ * balances — so no extra plumbing is needed to move the whole popup to the new account.
+ */
+async function addAccount(label?: string): Promise<void> {
+  await run('The account could not be added.', async () => {
+    const list = await addHdAccount(label)
+    const newest = list.accounts.reduce((a, b) => (b.index > a.index ? b : a), list.accounts[0])
+    // adopt() reloads the registry, so it will see the account addHdAccount just saved.
+    await adopt(await switchActiveAccount(newest.index))
+  })
+}
+
+async function switchAccount(index: number): Promise<void> {
+  if (index === state.activeIndex && state.status === 'unlocked') return
+  await run('The account could not be switched.', async () => {
+    const key = await switchActiveAccount(index)
+    await adopt(key)
+  })
+}
+
+async function renameAccount(index: number, label: string): Promise<void> {
+  await run('The account could not be renamed.', async () => {
+    const list = await renameHdAccount(index, label)
+    setState({ accounts: list.accounts })
+  })
+}
+
 async function wipe(): Promise<void> {
   await run('The wallet could not be removed.', async () => {
     await wipeVault()
     pending = null
-    setState({ status: 'empty', address: null, signer: null })
+    setState({
+      status: 'empty',
+      address: null,
+      signer: null,
+      accounts: [],
+      activeIndex: 0,
+      canAddAccount: false,
+    })
   })
 }
 
@@ -239,6 +312,9 @@ export function useVault(): VaultApi {
   return useMemo(
     () => ({
       ...snapshot,
+      addAccount,
+      switchAccount,
+      renameAccount,
       create,
       activate,
       importSecret,

@@ -25,6 +25,18 @@ import { readProvider } from '@app/lib/rpc'
 const KEYSTORE_KEY = 'sherwood:ext:keystore'
 const SESSION_KEY = 'sherwood:ext:session'
 const AUTOLOCK_KEY = 'sherwood:ext:autolock-ms'
+/** The HD account registry: which derived accounts exist and which one is active. Just
+ *  indexes, labels and addresses — nothing secret — so it lives on disk beside the
+ *  keystore and survives a restart. The private keys are re-derived from the mnemonic on
+ *  unlock and never written here. */
+const ACCOUNTS_KEY = 'sherwood:ext:accounts'
+
+/** Standard Ethereum HD path. `ethers.Wallet.fromMnemonic(phrase)` derives account 0 at
+ *  exactly this prefix + "/0", so account i is the same prefix + "/i" — this is the path
+ *  MetaMask and every other wallet walk when they "add account". */
+const HD_PATH_PREFIX = "m/44'/60'/0'/0"
+
+const hdPath = (index: number): string => `${HD_PATH_PREFIX}/${index}`
 
 /**
  * `@app/lib/privacy/encryption` caches the sign-in signature in sessionStorage under
@@ -54,11 +66,33 @@ export interface StoredAccount {
   json: string
 }
 
+/** One HD account: its derivation index, its address, and an optional label the user
+ *  gave it. Purely descriptive — no key material — so it is safe on disk. */
+export interface HdAccount {
+  index: number
+  address: string
+  label?: string
+}
+
+/** The persisted account registry. `activeIndex` is the derivation index (not a list
+ *  position) of the account the wallet is currently acting as. */
+export interface AccountList {
+  accounts: HdAccount[]
+  activeIndex: number
+}
+
 /** What an unlock hands back. The key is passed by value and never held in module
- *  scope: only React state and `chrome.storage.session` keep a copy. */
+ *  scope: only React state and `chrome.storage.session` keep a copy.
+ *
+ *  `index` is which HD account this key belongs to. `mnemonic` is the BIP-39 phrase the
+ *  keystore was built from, present only for HD wallets (a raw-private-key import has
+ *  none) — it rides the session so accounts can be switched without the password, and it
+ *  never touches `chrome.storage.local`. */
 export interface UnlockedKey {
   address: string
   privateKey: string
+  index: number
+  mnemonic: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +211,60 @@ async function encryptWallet(
   return { address: wallet.address, json }
 }
 
+// ---------------------------------------------------------------------------
+// The HD account registry
+// ---------------------------------------------------------------------------
+//
+// The keystore encrypts one wallet — the mnemonic root, which is account 0. Every other
+// account is derived from that same mnemonic at a different path index, so nothing extra
+// has to be encrypted: the registry below only remembers WHICH indexes the user has
+// added and which is active. It is rebuilt from the keystore's own address if it is ever
+// missing, so an old single-account wallet upgrades itself the first time it is read.
+
+/** Derive the wallet for one HD account from a BIP-39 phrase. */
+export function deriveHdWallet(mnemonic: string, index: number): ethers.Wallet {
+  return ethers.Wallet.fromMnemonic(mnemonic, hdPath(index))
+}
+
+/** The account registry, or a single-account default synthesised from the keystore for a
+ *  wallet created before multi-account existed (or one imported from a raw key). */
+export async function loadAccounts(): Promise<AccountList | null> {
+  const account = await loadAccount()
+  if (!account) return null
+
+  const raw = await diskGet(ACCOUNTS_KEY)
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as Partial<AccountList>
+      if (Array.isArray(parsed.accounts) && parsed.accounts.length > 0) {
+        const accounts = parsed.accounts
+          .filter(
+            (a): a is HdAccount =>
+              !!a && typeof a.index === 'number' && typeof a.address === 'string',
+          )
+          .map((a) => ({ index: a.index, address: a.address, label: a.label }))
+        if (accounts.length > 0) {
+          const activeIndex =
+            typeof parsed.activeIndex === 'number' &&
+            accounts.some((a) => a.index === parsed.activeIndex)
+              ? parsed.activeIndex
+              : accounts[0].index
+          return { accounts, activeIndex }
+        }
+      }
+    } catch {
+      /* an unreadable registry is treated as absent: the default below is always safe */
+    }
+  }
+
+  // No registry yet: the keystore's own address is account 0.
+  return { accounts: [{ index: 0, address: account.address }], activeIndex: 0 }
+}
+
+async function saveAccounts(list: AccountList): Promise<void> {
+  await diskSet(ACCOUNTS_KEY, JSON.stringify(list))
+}
+
 /**
  * Mint a brand-new wallet and persist its keystore. Returns the mnemonic so the caller
  * can show it once — it is never written anywhere in the clear, and the only other way
@@ -191,11 +279,14 @@ export async function createWallet(
   onProgress?: ProgressFn,
 ): Promise<UnlockedKey & { mnemonic: string }> {
   const wallet = ethers.Wallet.createRandom()
+  const mnemonic = wallet.mnemonic.phrase
   await saveAccount(await encryptWallet(wallet, password, onProgress))
+  await saveAccounts({ accounts: [{ index: 0, address: wallet.address }], activeIndex: 0 })
   return {
     address: wallet.address,
     privateKey: wallet.privateKey,
-    mnemonic: wallet.mnemonic.phrase,
+    index: 0,
+    mnemonic,
   }
 }
 
@@ -207,8 +298,12 @@ export async function importWallet(
   onProgress?: ProgressFn,
 ): Promise<UnlockedKey> {
   const wallet = walletFromSecret(secret)
+  // A phrase import derives account 0 at the standard path and can grow more accounts
+  // later; a raw-key import has no phrase, so it is a single account for good.
+  const mnemonic = wallet.mnemonic?.phrase ?? null
   await saveAccount(await encryptWallet(wallet, password, onProgress))
-  const key = { address: wallet.address, privateKey: wallet.privateKey }
+  await saveAccounts({ accounts: [{ index: 0, address: wallet.address }], activeIndex: 0 })
+  const key: UnlockedKey = { address: wallet.address, privateKey: wallet.privateKey, index: 0, mnemonic }
   await startSession(key)
   return key
 }
@@ -222,10 +317,33 @@ export async function importWallet(
 export async function unlockWallet(password: string, onProgress?: ProgressFn): Promise<UnlockedKey> {
   const account = await loadAccount()
   if (!account) throw new Error('There is no wallet on this device yet.')
-  const wallet = await ethers.Wallet.fromEncryptedJson(account.json, password, onProgress)
-  const key = { address: wallet.address, privateKey: wallet.privateKey }
+  const root = await ethers.Wallet.fromEncryptedJson(account.json, password, onProgress)
+  const mnemonic = root.mnemonic?.phrase ?? null
+
+  // Re-derive whichever account was active. A raw-key import has no mnemonic and lives
+  // only at index 0, so it is used as-is; an HD wallet derives the active index from its
+  // phrase. If the registry ever points at an account this keystore cannot produce
+  // (should not happen), fall back to account 0 rather than stranding the user.
+  const list = await loadAccounts()
+  const activeIndex = list?.activeIndex ?? 0
+  const key = deriveActiveKey(root, mnemonic, activeIndex)
   await startSession(key)
   return key
+}
+
+/** Build the `UnlockedKey` for a given active index from an already-decrypted root
+ *  wallet. Shared by unlock and session-resume so both agree on how an index maps to a
+ *  key. Index 0 is always the keystore's own wallet; higher indexes need the mnemonic. */
+function deriveActiveKey(
+  root: ethers.Wallet,
+  mnemonic: string | null,
+  activeIndex: number,
+): UnlockedKey {
+  if (mnemonic && activeIndex > 0) {
+    const derived = deriveHdWallet(mnemonic, activeIndex)
+    return { address: derived.address, privateKey: derived.privateKey, index: activeIndex, mnemonic }
+  }
+  return { address: root.address, privateKey: root.privateKey, index: 0, mnemonic }
 }
 
 /**
@@ -251,6 +369,7 @@ export async function revealSecret(
 export async function wipeVault(): Promise<void> {
   await endSession()
   await diskRemove(KEYSTORE_KEY)
+  await diskRemove(ACCOUNTS_KEY)
 }
 
 // ---------------------------------------------------------------------------
@@ -259,6 +378,14 @@ export async function wipeVault(): Promise<void> {
 
 interface SessionEntry {
   privateKey: string
+  /** The active account's address and HD index, so a resumed session comes back as the
+   *  same account the popup was closed on rather than always account 0. */
+  address: string
+  index: number
+  /** The BIP-39 phrase, kept in memory-only session storage so accounts can be switched
+   *  without re-entering the password. Null for a raw-key import. This is the same
+   *  security tier as `privateKey`: it never reaches `chrome.storage.local`. */
+  mnemonic: string | null
   /** When the password was last accepted. Drives the auto-lock deadline. */
   unlockedAt: number
 }
@@ -266,8 +393,105 @@ interface SessionEntry {
 /** Open a session for an already-decrypted key. Exported because a freshly created
  *  wallet is confirmed by its owner after `createWallet` has returned. */
 export async function startSession(key: UnlockedKey): Promise<void> {
-  const entry: SessionEntry = { privateKey: key.privateKey, unlockedAt: Date.now() }
+  const entry: SessionEntry = {
+    privateKey: key.privateKey,
+    address: key.address,
+    index: key.index,
+    mnemonic: key.mnemonic,
+    unlockedAt: Date.now(),
+  }
   await memorySet(JSON.stringify(entry))
+}
+
+/**
+ * Switch the active account without the password. Reads the mnemonic already held in the
+ * session, derives the requested index, persists it as active in the registry and rolls
+ * the session over to the new key. Throws for a raw-key import (no mnemonic) or a stale
+ * session — the caller should be unlocked before calling.
+ */
+export async function switchActiveAccount(index: number): Promise<UnlockedKey> {
+  const raw = await memoryGet()
+  if (!raw) throw new Error('The wallet is locked.')
+  let entry: SessionEntry
+  try {
+    entry = JSON.parse(raw) as SessionEntry
+  } catch {
+    throw new Error('The wallet is locked.')
+  }
+
+  const list = await loadAccounts()
+  if (!list) throw new Error('There is no wallet on this device yet.')
+
+  const target = list.accounts.find((a) => a.index === index)
+  if (!target) throw new Error('That account does not exist.')
+
+  let key: UnlockedKey
+  if (index === entry.index) {
+    // Already the active account (e.g. the wallet's only account): the session's own key
+    // is the answer, no derivation needed.
+    key = { address: entry.address, privateKey: entry.privateKey, index, mnemonic: entry.mnemonic }
+  } else {
+    // Any other index needs the phrase; a raw-key import never reaches here for index > 0
+    // because it has exactly one account, but guard anyway.
+    if (!entry.mnemonic) throw new Error('This wallet cannot switch accounts.')
+    const derived = deriveHdWallet(entry.mnemonic, index)
+    key = { address: derived.address, privateKey: derived.privateKey, index, mnemonic: entry.mnemonic }
+  }
+
+  await saveAccounts({ ...list, activeIndex: index })
+  // Preserve the original unlock deadline: switching is not a re-authentication.
+  await memorySet(
+    JSON.stringify({
+      privateKey: key.privateKey,
+      address: key.address,
+      index: key.index,
+      mnemonic: key.mnemonic,
+      unlockedAt: entry.unlockedAt,
+    } satisfies SessionEntry),
+  )
+  return key
+}
+
+/**
+ * Add the next HD account (highest existing index + 1), derived from the session's
+ * mnemonic. Persists it in the registry and returns the updated list. Does NOT switch to
+ * it — the caller decides whether adding should also activate. Throws for a raw-key
+ * import, which has no phrase to derive from.
+ */
+export async function addHdAccount(label?: string): Promise<AccountList> {
+  const raw = await memoryGet()
+  if (!raw) throw new Error('The wallet is locked.')
+  let entry: SessionEntry
+  try {
+    entry = JSON.parse(raw) as SessionEntry
+  } catch {
+    throw new Error('The wallet is locked.')
+  }
+  if (!entry.mnemonic)
+    throw new Error('This wallet was imported from a private key, so it holds a single account only.')
+
+  const list = (await loadAccounts()) ?? { accounts: [], activeIndex: 0 }
+  const nextIndex = list.accounts.reduce((max, a) => Math.max(max, a.index), -1) + 1
+  const derived = deriveHdWallet(entry.mnemonic, nextIndex)
+  const trimmed = label?.trim()
+  const account: HdAccount = { index: nextIndex, address: derived.address, ...(trimmed ? { label: trimmed } : {}) }
+  const next: AccountList = { accounts: [...list.accounts, account], activeIndex: list.activeIndex }
+  await saveAccounts(next)
+  return next
+}
+
+/** Rename an account in the registry. Labels are cosmetic and hold no key material, so
+ *  this needs no session and no password. Clearing the label reverts to the default name. */
+export async function renameHdAccount(index: number, label: string): Promise<AccountList> {
+  const list = await loadAccounts()
+  if (!list) throw new Error('There is no wallet on this device yet.')
+  const trimmed = label.trim()
+  const accounts = list.accounts.map((a) =>
+    a.index === index ? { ...a, label: trimmed || undefined } : a,
+  )
+  const next: AccountList = { ...list, accounts }
+  await saveAccounts(next)
+  return next
 }
 
 /**
@@ -309,7 +533,14 @@ export async function resumeSession(): Promise<UnlockedKey | null> {
   }
 
   await memorySet(JSON.stringify({ ...entry, unlockedAt: Date.now() }))
-  return { address: account.address, privateKey: entry.privateKey }
+  // The session carries the active account it was closed on; older sessions (written
+  // before multi-account) have neither field, so fall back to the keystore's account 0.
+  return {
+    address: typeof entry.address === 'string' ? entry.address : account.address,
+    privateKey: entry.privateKey,
+    index: typeof entry.index === 'number' ? entry.index : 0,
+    mnemonic: typeof entry.mnemonic === 'string' ? entry.mnemonic : null,
+  }
 }
 
 /** True once the current session has aged past the auto-lock deadline. Cheap enough

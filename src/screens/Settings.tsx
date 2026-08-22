@@ -17,9 +17,11 @@ import {
   EyeOff,
   InfoRow,
   LogOut,
+  Plus,
   ScreenHeader,
   Shield,
 } from '../components/ui'
+import type { HdAccount } from '../wallet/vault'
 // The version the browser actually shows in chrome://extensions comes from the manifest,
 // so it is read from there rather than kept in a second place that can drift.
 import manifest from '../../manifest.json'
@@ -32,14 +34,14 @@ function short(value: string) {
 }
 
 export function Settings() {
-  const { address, go } = useAccountState()
+  const { go } = useAccountState()
   const vault = useVault()
 
   return (
     <div className="space-y-3">
       <ScreenHeader title="Settings" onBack={() => go('home')} />
 
-      <Account address={address} />
+      <Accounts vault={vault} />
       <Security lock={vault.lock} reveal={vault.reveal} />
       <Network />
       <DangerZone wipe={vault.wipe} />
@@ -84,18 +86,48 @@ function CopyButton({ value, label, disabled }: { value: string; label: string; 
   )
 }
 
-function Account({ address }: { address: string | null }) {
+/** The default name for an account with no label of its own: "Account 1" for index 0,
+ *  and so on, so the list never shows a blank row. */
+const accountName = (a: HdAccount): string => a.label?.trim() || `Account ${a.index + 1}`
+
+/**
+ * The account switcher: every HD account this wallet holds, which one is active, and the
+ * controls to add, switch and rename them. A wallet imported from a raw private key has
+ * a single account and no phrase to derive more from, so "Add account" is disabled with
+ * a short reason rather than hidden — hiding it would read as a missing feature.
+ */
+function Accounts({ vault }: { vault: ReturnType<typeof useVault> }) {
+  const { accounts, activeIndex, canAddAccount, busy, switchAccount, addAccount, renameAccount } = vault
+  const [renaming, setRenaming] = useState<number | null>(null)
+  const [draft, setDraft] = useState('')
+
+  const active = accounts.find((a) => a.index === activeIndex) ?? accounts[0] ?? null
+
+  function startRename(a: HdAccount) {
+    setRenaming(a.index)
+    setDraft(a.label ?? '')
+  }
+
+  async function commitRename(index: number) {
+    await renameAccount(index, draft)
+    setRenaming(null)
+    setDraft('')
+  }
+
   return (
     <section className="card">
-      <span className="label">Account</span>
-      <p className="inset select-all break-all px-3 py-2.5 font-mono text-[12px] leading-relaxed text-white">
-        {address ?? '—'}
-      </p>
+      <span className="label">Accounts</span>
+
+      {active && (
+        <p className="inset select-all break-all px-3 py-2.5 font-mono text-[12px] leading-relaxed text-white">
+          {active.address}
+        </p>
+      )}
       <div className="mt-3 flex gap-2">
-        <CopyButton value={address ?? ''} label="Copy address" disabled={!address} />
+        <CopyButton value={active?.address ?? ''} label="Copy address" disabled={!active} />
         <a
           className="btn-ghost flex-1"
-          href={address ? `${EXPLORER}/address/${address}` : EXPLORER}
+          href={active ? `${EXPLORER}/address/${active.address}` : EXPLORER}
           target="_blank"
           rel="noreferrer"
         >
@@ -103,6 +135,87 @@ function Account({ address }: { address: string | null }) {
           Explorer
         </a>
       </div>
+
+      <div className="mt-3 space-y-1.5">
+        {accounts.map((a) => {
+          const isActive = a.index === activeIndex
+          if (renaming === a.index) {
+            return (
+              <div key={a.index} className="inset flex items-center gap-2 px-2.5 py-2">
+                <input
+                  className="input flex-1 text-[12px]"
+                  autoFocus
+                  maxLength={40}
+                  placeholder={`Account ${a.index + 1}`}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void commitRename(a.index)
+                    if (e.key === 'Escape') setRenaming(null)
+                  }}
+                />
+                <button
+                  className="btn-primary shrink-0 px-3 py-1.5 text-[12px]"
+                  disabled={busy}
+                  onClick={() => void commitRename(a.index)}
+                >
+                  Save
+                </button>
+              </div>
+            )
+          }
+          return (
+            <div
+              key={a.index}
+              className={`inset flex items-center gap-2 px-2.5 py-2 ${
+                isActive ? 'border-mint/40' : ''
+              }`}
+            >
+              <button
+                className="min-w-0 flex-1 text-left"
+                disabled={busy || isActive}
+                onClick={() => void switchAccount(a.index)}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-[12.5px] font-semibold text-white">
+                    {accountName(a)}
+                  </span>
+                  {isActive && (
+                    <span className="rounded-full border border-mint/40 bg-mint/10 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-mint">
+                      Active
+                    </span>
+                  )}
+                </div>
+                <span className="block truncate font-mono text-[11px] text-muted">
+                  {short(a.address)}
+                </span>
+              </button>
+              <button
+                className="btn-ghost shrink-0 px-2.5 py-1.5 text-[11px]"
+                disabled={busy}
+                onClick={() => startRename(a)}
+              >
+                Rename
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      <button
+        className="btn-ghost mt-2 w-full"
+        disabled={busy || !canAddAccount}
+        onClick={() => void addAccount()}
+      >
+        <Plus width={13} height={13} />
+        Add account
+      </button>
+      {!canAddAccount && accounts.length > 0 && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+          This wallet was imported from a private key, so it holds a single account. Import
+          a recovery phrase to derive more.
+        </p>
+      )}
     </section>
   )
 }

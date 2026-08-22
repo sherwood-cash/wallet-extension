@@ -35,6 +35,19 @@ import type { ActivityItem, Screen } from './types'
 const ACTIVITY_KEY = 'sherwood:ext:activity:'
 const ACTIVITY_MAX = 30
 
+/** Which face of the wallet is showing. Persisted globally (not per-address) so the
+ *  choice survives a lock/unlock and a reopen. */
+export type WalletMode = 'normal' | 'private'
+const MODE_KEY = 'sherwood:ext:mode'
+
+function readMode(): WalletMode {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'private' ? 'private' : 'normal'
+  } catch {
+    return 'normal'
+  }
+}
+
 export interface AccountState {
   /** Local signer, already connected to the read RPC. Null while locked. */
   signer: ethers.Wallet | null
@@ -43,6 +56,12 @@ export interface AccountState {
   keys: Keys | null
   /** True while the keys are still being derived on unlock. */
   signingIn: boolean
+
+  /** Which face of the wallet is showing: a plain EOA wallet, or the shielded pool. */
+  mode: WalletMode
+  setMode: (m: WalletMode) => void
+  /** Flip between the two faces. */
+  toggleMode: () => void
 
   assets: AssetMeta[]
   asset: AssetMeta
@@ -104,6 +123,7 @@ export function AccountProvider({
 }) {
   const [keys, setKeys] = useState<Keys | null>(null)
   const [signingIn, setSigningIn] = useState(false)
+  const [mode, setModeState] = useState<WalletMode>(readMode)
   const [assetKey, setAssetKey] = useState<string>(ASSETS[0]?.key ?? 'eth')
   const [wallet, setWallet] = useState<Map<string, AssetBalances>>(new Map())
   const [shielded, setShielded] = useState<Map<string, NoteSummary>>(new Map())
@@ -214,6 +234,20 @@ export function AccountProvider({
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 
+  const setMode = useCallback((m: WalletMode) => {
+    setModeState(m)
+    try {
+      localStorage.setItem(MODE_KEY, m)
+    } catch {
+      /* private-mode / quota — the toggle still works for this session */
+    }
+  }, [])
+
+  const toggleMode = useCallback(
+    () => setMode(mode === 'private' ? 'normal' : 'private'),
+    [mode, setMode],
+  )
+
   const walletBalanceOf = useCallback(
     (a: AssetMeta) => {
       const b = wallet.get(a.key)
@@ -248,6 +282,9 @@ export function AccountProvider({
     address,
     keys,
     signingIn,
+    mode,
+    setMode,
+    toggleMode,
     assets: ASSETS,
     asset,
     selectAsset: setAssetKey,

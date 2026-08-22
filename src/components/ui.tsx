@@ -60,7 +60,7 @@ export function StatusNote({ status, error }: { status?: string | null; error?: 
 export function TxLink({ hash, label = 'Transaction submitted' }: { hash: string; label?: string }) {
   return (
     <a
-      className="press mt-3 block truncate rounded-xl border border-edge bg-panel2 px-3 py-2.5 text-[12px] font-medium text-mint transition hover:border-mint/50"
+      className="press mt-3 block truncate rounded-xl border border-edge bg-panel2 px-3 py-2.5 text-[12px] font-medium text-mint shadow-soft transition hover:border-mint/50 hover:bg-mint/[0.06]"
       href={txUrl(hash)}
       target="_blank"
       rel="noreferrer"
@@ -156,7 +156,7 @@ export function ScreenHeader({
         <button
           onClick={onBack}
           aria-label="Back"
-          className="press mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-edge bg-panel2 text-muted transition hover:border-edgeLit hover:text-white"
+          className="press mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-edge bg-panel2 text-muted shadow-soft transition hover:border-edgeLit hover:bg-panel hover:text-white"
         >
           ←
         </button>

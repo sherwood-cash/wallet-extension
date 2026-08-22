@@ -62,14 +62,14 @@ export function TokenPicker({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-ink/95 backdrop-blur-sm">
-          <div className="flex items-center gap-2 border-b border-edge px-3 py-2.5">
+        <div className="animate-fade-in fixed inset-0 z-50 flex flex-col bg-ink/95 backdrop-blur-md">
+          <div className="flex items-center gap-2 border-b border-edge/70 px-3 py-3">
             <input
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search assets"
-              className="input min-h-[38px] flex-1 py-2 text-[13px]"
+              className="input h-11 min-h-[44px] flex-1 text-[13px]"
             />
             <button
               onClick={() => {
@@ -83,7 +83,7 @@ export function TokenPicker({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto py-1">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {shown.length === 0 && (
               <p className="px-4 py-6 text-center text-[12px] text-muted">No asset matches “{query}”.</p>
             )}
@@ -100,13 +100,19 @@ export function TokenPicker({
                     setOpen(false)
                     setQuery('')
                   }}
-                  className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition ${
-                    blocked ? 'cursor-default opacity-50' : 'hover:bg-panel2'
-                  } ${a.key === value ? 'bg-panel2' : ''}`}
+                  className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors duration-150 ${
+                    blocked ? 'cursor-default border-transparent opacity-50' : 'border-transparent hover:bg-white/[0.04]'
+                  } ${
+                    a.key === value
+                      ? 'border-mint/40 bg-mint/[0.08] shadow-[0_1px_0_0_rgba(227,209,153,0.06)_inset]'
+                      : ''
+                  }`}
                 >
                   <TokenIcon symbol={a.symbol} accent={a.accent} size={28} src={a.logoUrl} plain />
                   <span className="min-w-0 flex-1 leading-tight">
-                    <span className="block truncate text-[13px] font-semibold text-white">{a.symbol}</span>
+                    <span className={`block truncate text-[13px] font-semibold ${a.key === value ? 'text-mint' : 'text-white'}`}>
+                      {a.symbol}
+                    </span>
                     <span className="block truncate text-[11px] text-muted">{a.name}</span>
                   </span>
                   {blocked ? (
