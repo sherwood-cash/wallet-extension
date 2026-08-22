@@ -162,10 +162,7 @@ export function Home() {
         </div>
         {activity.length === 0 ? (
           <div className="px-3 pb-3">
-            <EmptyNote>
-              Nothing yet. Deposits, swaps and withdrawals you make here will show up in this
-              list, with a link to each transaction.
-            </EmptyNote>
+            <EmptyNote>Nothing yet</EmptyNote>
           </div>
         ) : (
           <div className="border-t border-edge">

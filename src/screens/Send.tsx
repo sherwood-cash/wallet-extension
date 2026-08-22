@@ -141,12 +141,6 @@ export function Send() {
         onBack={() => go('home')}
       />
 
-      <section className="rounded-xl border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2.5 text-[11.5px] leading-relaxed text-amber-200/90">
-        <span className="font-semibold text-amber-200">This send is public.</span> It does not use
-        the private pool: the amount, the recipient and this address are all visible on-chain.
-        To move funds privately, withdraw from the pool instead.
-      </section>
-
       <section className="card">
         <div className="space-y-3">
           <Field label="Asset">

@@ -27,6 +27,7 @@ import {
   type NoteSummary,
 } from '@app/lib/actions'
 import { signIn } from '@app/lib/privacy/encryption'
+import { indexerBaseUrl } from '@app/lib/privacy/indexer'
 import { readProvider } from '@app/lib/rpc'
 import { ASSETS, DEPLOYMENT, type AssetMeta } from '@app/config'
 import type { ActivityItem, Screen } from './types'
@@ -113,9 +114,41 @@ const ERC20_META_ABI = [
   'function decimals() view returns (uint8)',
 ]
 
-/** Read an ERC-20's metadata so an added token shows a real symbol and decimals. */
+/** Read an ERC-20's metadata so an added token shows a real symbol, decimals and logo.
+ *  Prefers the indexer's resolver — the same `/tokens/:address` route the web app's token
+ *  import uses (it enriches with a DexScreener logo) — and falls back to a direct on-chain
+ *  read when no indexer is configured or it cannot resolve the token. */
 async function fetchTokenMeta(address: string): Promise<AssetMeta> {
   const addr = ethers.utils.getAddress(address)
+
+  const base = indexerBaseUrl()
+  if (base) {
+    try {
+      const res = await fetch(`${base}/tokens/${addr}`, { headers: { accept: 'application/json' } })
+      if (res.ok) {
+        const body = (await res.json()) as {
+          token?: { symbol?: string | null; name?: string | null; decimals?: number | null; logoUrl?: string | null }
+        }
+        const t = body?.token
+        if (t && (t.symbol || t.decimals != null)) {
+          return {
+            token: addr,
+            decimals: Number(t.decimals ?? 18),
+            native: false,
+            key: `t:${addr.toLowerCase()}`,
+            symbol: t.symbol || addr.slice(0, 6),
+            name: t.name || t.symbol || 'Token',
+            accent: '#cdb360',
+            logoUrl: t.logoUrl || undefined,
+            assetId: ethers.BigNumber.from(addr),
+          } as AssetMeta
+        }
+      }
+    } catch {
+      /* fall through to a direct on-chain read */
+    }
+  }
+
   const c = new ethers.Contract(addr, ERC20_META_ABI, readProvider)
   const [symbol, name, decimals] = await Promise.all([
     c.symbol().catch(() => addr.slice(0, 6)),
@@ -132,7 +165,7 @@ async function fetchTokenMeta(address: string): Promise<AssetMeta> {
     key: `t:${addr.toLowerCase()}`,
     symbol,
     name,
-    accent: '#50d2c1',
+    accent: '#cdb360',
     assetId: ethers.BigNumber.from(addr),
   } as AssetMeta
 }

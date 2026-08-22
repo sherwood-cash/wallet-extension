@@ -15,11 +15,13 @@
     "ffjavascript": "^0.3.1",
     "fixed-merkle-tree": "^0.7.3",
     "poseidon-lite": "^0.3.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "snarkjs": "^0.7.5"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

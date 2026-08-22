@@ -7,12 +7,14 @@
  * pitch is privacy has to be the one telling you that, plainly and up front.
  */
 import { useCallback, useEffect, useState } from 'react'
+import QRCode from 'qrcode'
 import { useAccountState } from '../state'
 import { Copy, ScreenHeader, Shield } from '../components/ui'
 
 export function Receive() {
   const { address, go } = useAccountState()
   const [copied, setCopied] = useState(false)
+  const [qr, setQr] = useState<string | null>(null)
 
   const copy = useCallback(() => {
     if (!address) return
@@ -26,6 +28,29 @@ export function Receive() {
     return () => clearTimeout(t)
   }, [copied])
 
+  useEffect(() => {
+    if (!address) {
+      setQr(null)
+      return
+    }
+    let alive = true
+    QRCode.toDataURL(address, {
+      margin: 1,
+      width: 320,
+      errorCorrectionLevel: 'M',
+      color: { dark: '#0b0d0a', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (alive) setQr(url)
+      })
+      .catch(() => {
+        if (alive) setQr(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [address])
+
   return (
     <div className="space-y-3">
       <ScreenHeader
@@ -34,24 +59,26 @@ export function Receive() {
         onBack={() => go('home')}
       />
 
-      <section className="card">
-        <span className="label">Address</span>
+      <section className="card flex flex-col items-center">
+        {/* The QR encodes the plain address — scan it from a phone or another wallet. */}
+        <div className="rounded-2xl bg-white p-3 shadow-card">
+          {qr ? (
+            <img src={qr} alt="Wallet address QR code" width={188} height={188} className="block h-[188px] w-[188px]" />
+          ) : (
+            <div className="h-[188px] w-[188px] animate-pulse rounded-lg bg-black/10" />
+          )}
+        </div>
+        <span className="label mt-3 self-start">Address</span>
         {/* Broken across lines rather than truncated: this is the one place the whole
             string has to be readable, because it is what gets checked character by
             character against whatever is sending the funds. */}
-        <p className="inset select-all break-all px-3 py-2.5 font-mono text-[12px] leading-relaxed text-white">
+        <p className="inset w-full select-all break-all px-3 py-2.5 font-mono text-[12px] leading-relaxed text-white">
           {address ?? '—'}
         </p>
-        <button className="btn-cta mt-3" onClick={copy} disabled={!address}>
+        <button className="btn-cta mt-3 w-full" onClick={copy} disabled={!address}>
           <Copy width={15} height={15} />
           {copied ? 'Copied to the clipboard' : 'Copy address'}
         </button>
-      </section>
-
-      <section className="rounded-xl border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2.5 text-[11.5px] leading-relaxed text-amber-200/90">
-        <span className="font-semibold text-amber-200">This address is public.</span> Anything sent
-        to it lands in the plain part of your wallet, where the amount and the sender are
-        visible on the block explorer like any other transfer.
       </section>
 
       <section className="card">
