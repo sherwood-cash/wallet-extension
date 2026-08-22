@@ -1,0 +1,126 @@
+{
+  "network": "robinhood",
+  "chainId": 4663,
+  "rpcUrl": "",
+  "indexerUrl": "",
+  "relayerUrl": "",
+  "explorer": "",
+  "deployBlock": 21248162,
+  "logChunk": 1000,
+  "merkleTreeHeight": 26,
+  "admin": "0x93080bdF26050307d410d372640D4398397E0A6E",
+  "vault": "0xf54013b8BE8fdFcF0CD1fD727c803F16c2450736",
+  "swapLogic": "0x52445Ae1B988CfDc668EB15628629ED7d0890C6A",
+  "swapLogicImpl": "0x10562a98b0eB2BFF853275da5F34BF498192d45B",
+  "verifier2": "0x3d7bEA6294BC033fAA7e0e06F2D94088106CDb79",
+  "hasher": "0x71C526201461b1DFD4964429439f656378eFC2bd",
+  "hasher4": "0x03b2637fe5d20d24457236974bCECe6ecf22587e",
+  "weth": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+  "routers": {
+    "v2": "0x89e5db8b5aa49aa85ac63f691524311aeb649eba",
+    "v3": "0xcaf681a66d020601342297493863e78c959e5cb2",
+    "v4": "0x355f01480d40042822C323599191fFd9853E3bbe"
+  },
+  "v4": {
+    "adapter": "0x355f01480d40042822C323599191fFd9853E3bbe",
+    "universalRouter": "0x8876789976decbfcbbbe364623c63652db8c0904",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  },
+  "quoters": {
+    "v3": "0x33e885ed0ec9bf04ecfb19341582aadcb4c8a9e7",
+    "v4": "0x8dc178efb8111bb0973dd9d722ebeff267c98f94"
+  },
+  "v3Pools": [
+    {
+      "tokenA": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+      "tokenB": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+      "fee": 100
+    },
+    {
+      "tokenA": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+      "tokenB": "0x020bfc650a365f8bb26819deaabf3e21291018b4",
+      "fee": 10000
+    },
+    {
+      "tokenA": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+      "tokenB": "0x020bfc650a365f8bb26819deaabf3e21291018b4",
+      "fee": 10000
+    },
+    {
+      "tokenA": "0x0bd7d308f8e1639fab988df18a8011f41eacad73",
+      "tokenB": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+      "fee": 10000
+    },
+    {
+      "tokenA": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+      "tokenB": "0x39dbed3a2bd333467115de45665cc57f813c4571",
+      "fee": 10000
+    }
+  ],
+  "nativeCurrency": {
+    "name": "Ether",
+    "symbol": "ETH",
+    "decimals": 18
+  },
+  "protocolFee": {
+    "swapBps": 50,
+    "withdrawBps": 50,
+    "recipient": "0x6cEE2DC8A42A5AA3f28799ea8Ebd23Ea5e07cc08",
+    "feeAssets": [
+      "eth",
+      "usdg"
+    ]
+  },
+  "assets": {
+    "eth": {
+      "token": "0x0000000000000000000000000000000000000000",
+      "decimals": 18,
+      "native": true
+    },
+    "usdg": {
+      "token": "0x5fc5360d0400a0fd4f2af552add042d716f1d168",
+      "decimals": 6,
+      "native": false
+    },
+    "cashcat": {
+      "token": "0x020bfc650a365f8bb26819deaabf3e21291018b4",
+      "decimals": 18,
+      "native": false
+    },
+    "pipedog": {
+      "token": "0x5Cb6F181081301b44905F3ae15419112ecaBd8A6",
+      "decimals": 18,
+      "native": false
+    },
+    "pons": {
+      "token": "0x39dBED3a2bd333467115dE45665cC57F813C4571",
+      "decimals": 18,
+      "native": false
+    },
+    "nvda": {
+      "token": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "decimals": 18,
+      "native": false
+    },
+    "spcx": {
+      "token": "0x4a0E65A3EcceC6dBe60AE065F2e7bb85Fae35eEa",
+      "decimals": 18,
+      "native": false
+    },
+    "tsla": {
+      "token": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+      "decimals": 18,
+      "native": false
+    },
+    "whatif": {
+      "token": "0x232CDFc415D10b673845D83Dc02ba2eaBe7e30d1",
+      "decimals": 18,
+      "native": false
+    },
+    "sherwood": {
+      "token": "0xD4DC6B48Ad73EC51E71D9B8F65568f88609b92c1",
+      "decimals": 18,
+      "native": false
+    }
+  }
+}

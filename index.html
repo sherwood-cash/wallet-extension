@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sherwood Wallet</title>
+    <!--
+      Fonts are bundled, not fetched. MV3's CSP blocks remote stylesheets on
+      extension pages, and a wallet that phones Google on every open is a
+      privacy leak in a product whose entire point is not leaking.
+    -->
+    <link rel="stylesheet" href="./src/fonts.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

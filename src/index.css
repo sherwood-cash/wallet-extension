@@ -1,0 +1,213 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* The extension speaks the web app's design language verbatim — same palette (from
+   the shared tailwind theme), same component vocabulary (.card / .input / .btn-cta /
+   .seg), same sticker-ledge press. What changes is scale: a 400px popup has to hold
+   the same flows in a quarter of the width, so paddings, radii and type step down one
+   notch and the two-column grids collapse. Anything that only differs in size is
+   handled by the `.popup-*` overrides at the bottom of this file, so a change to the
+   brand still lands in one place. */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  /* Chrome sizes a popup to its content, capped at 800x600. We claim a fixed
+     360x600 so every screen has the same footprint and nothing jumps as the
+     content changes height. The tab view (`?view=tab`) drops both. */
+  width: 360px;
+  height: 600px;
+  overflow: hidden;
+  background: #0b0d0a;
+  color: #dedcd4;
+  -webkit-font-smoothing: antialiased;
+  font-family: 'Manrope', system-ui, sans-serif;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Popped out into a real tab: let the page breathe and scroll normally. */
+html.view-tab,
+html.view-tab body {
+  width: auto;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+#root {
+  height: 100%;
+}
+
+@layer components {
+  /* ---- surfaces ---------------------------------------------------------- */
+  .card {
+    @apply relative rounded-2xl border border-edge bg-panel/95 p-4 shadow-card;
+  }
+  .panel {
+    @apply relative rounded-2xl border border-edge bg-panel/95 shadow-card;
+  }
+  /* The canopy light across the top of every panel — the app's tell. */
+  .card::before,
+  .panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgba(224, 211, 160, 0.05), transparent 34%);
+    pointer-events: none;
+  }
+  .inset {
+    @apply rounded-xl border border-edge bg-panel2;
+  }
+  .stat {
+    @apply rounded-xl border border-edge bg-panel2 px-3 py-2;
+  }
+
+  /* ---- forms ------------------------------------------------------------- */
+  .input {
+    @apply min-h-[46px] w-full rounded-xl border border-edge bg-ink px-3 py-2.5 text-base text-white outline-none
+           transition focus:border-mint focus:ring-2 focus:ring-mint/25 placeholder:text-muted/50;
+  }
+  .select {
+    @apply flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-edge bg-ink px-2.5 py-2
+           text-left text-white outline-none transition hover:border-edgeLit focus:border-mint;
+  }
+
+  /* ---- buttons ------------------------------------------------------------
+     `.press` is the app's one cartoon flourish: a hard ledge that collapses when
+     you push, so the control physically travels. Spent only on things you hit. */
+  .press {
+    @apply transition-[transform,box-shadow,background-color,border-color] duration-100;
+  }
+  .press:not(:disabled):active {
+    transform: translateY(3px);
+    box-shadow: none !important;
+  }
+
+  .btn {
+    @apply press inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-semibold
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-mint text-[#0f0d06] shadow-[0_3px_0_0_theme(colors.mintDeep)] hover:bg-mintBright;
+  }
+  .btn-ghost {
+    @apply btn border border-edge bg-panel2 text-white hover:border-edgeLit hover:bg-panel;
+  }
+  .btn-cta {
+    @apply press flex w-full items-center justify-center gap-2 rounded-xl bg-mint px-4 py-3 text-[14px] font-extrabold
+           text-[#0f0d06] shadow-[0_3px_0_0_theme(colors.mintDeep)] hover:bg-mintBright
+           disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-[0_3px_0_0_rgba(4,12,8,0.5)];
+  }
+  .btn-danger {
+    @apply btn border border-neg/40 bg-neg/10 text-neg hover:border-neg/70 hover:bg-neg/20;
+  }
+
+  /* ---- labels & chrome ---------------------------------------------------- */
+  .label {
+    @apply mb-1.5 block text-[11px] font-semibold text-moss;
+  }
+  .eyebrow {
+    @apply text-[11px] font-semibold text-moss;
+  }
+  .pill {
+    @apply rounded-lg border border-edge bg-panel2 px-2 py-0.5 text-[11px] font-medium text-muted;
+  }
+  .chip {
+    @apply rounded-md border border-mint/35 bg-mint/10 px-2 py-0.5 text-[10px] font-semibold text-mint;
+  }
+  .max-btn {
+    @apply press rounded-md border border-mint/35 bg-mint/10 px-2 py-0.5 text-[10px] font-bold text-mint
+           hover:border-mint hover:bg-mint/20;
+  }
+  .num {
+    @apply font-mono tabular-nums text-white;
+  }
+
+  /* ---- segmented tabs (Deposit / Swap / Withdraw) ------------------------- */
+  .seg-rail {
+    @apply no-scrollbar flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-xl border border-edge bg-ink/70 p-0.5;
+  }
+  .seg {
+    @apply press min-w-0 flex-1 shrink-0 rounded-lg px-2 py-1.5 text-[12px] font-semibold;
+  }
+  .seg-on {
+    @apply bg-mint text-[#0f0d06] shadow-[0_2px_0_0_theme(colors.mintDeep)];
+  }
+  .seg-off {
+    @apply text-muted hover:bg-white/5 hover:text-white;
+  }
+
+  /* ---- list rows ---------------------------------------------------------- */
+  .row {
+    @apply flex items-center gap-2.5 border-b border-edge/50 px-3 py-2.5 transition last:border-b-0 hover:bg-white/[0.03];
+  }
+
+  .skeleton {
+    @apply inline-block rounded-full align-middle;
+    background: linear-gradient(
+      90deg,
+      rgba(205, 179, 96, 0.05) 0%,
+      rgba(205, 179, 96, 0.16) 50%,
+      rgba(205, 179, 96, 0.05) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+}
+
+/* The popup's own scrollbars: a thin gilt thumb, never the platform's light grey. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(205, 179, 96, 0.28) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(205, 179, 96, 0.22);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(205, 179, 96, 0.45);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.spinner {
+  display: inline-block;
+  border-radius: 9999px;
+  border: 2.5px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
