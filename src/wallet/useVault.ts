@@ -16,6 +16,7 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { ethers } from 'ethers'
 import {
   addHdAccount,
+  addImportedAccount,
   connectSigner,
   createWallet,
   describeError,
@@ -61,6 +62,10 @@ export interface VaultApi {
   canAddAccount: boolean
   /** Derive the next HD account and switch to it. No-op label is fine. */
   addAccount(label?: string): Promise<void>
+  /** Import a raw private key as an additional account and switch to it. Requires the
+   *  wallet password (to encrypt the key with it). Available on every wallet, including a
+   *  raw-key import — unlike `addAccount`, which needs a mnemonic. */
+  importPrivateKey(privateKey: string, password: string, label?: string): Promise<void>
   /** Make the account at `index` the active one; flips `address`/`signer` downstream. */
   switchAccount(index: number): Promise<void>
   /** Rename an account. Cosmetic; an empty label reverts to the default name. */
@@ -277,6 +282,15 @@ async function addAccount(label?: string): Promise<void> {
   })
 }
 
+/** Import a raw private key as a new account and switch to it. Encrypts the key under the
+ *  wallet password, then adopts it — flipping `address`/`signer` like any other switch. */
+async function importPrivateKey(privateKey: string, password: string, label?: string): Promise<void> {
+  await run('The private key could not be imported.', async () => {
+    const { index } = await addImportedAccount(privateKey, password, label)
+    await adopt(await switchActiveAccount(index))
+  })
+}
+
 async function switchAccount(index: number): Promise<void> {
   if (index === state.activeIndex && state.status === 'unlocked') return
   await run('The account could not be switched.', async () => {
@@ -313,6 +327,7 @@ export function useVault(): VaultApi {
     () => ({
       ...snapshot,
       addAccount,
+      importPrivateKey,
       switchAccount,
       renameAccount,
       create,

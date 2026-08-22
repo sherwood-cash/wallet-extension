@@ -66,12 +66,21 @@ export interface StoredAccount {
   json: string
 }
 
-/** One HD account: its derivation index, its address, and an optional label the user
- *  gave it. Purely descriptive — no key material — so it is safe on disk. */
+/** One account in the registry.
+ *
+ *  An HD account (the default) is purely descriptive — its key is re-derived from the
+ *  mnemonic at `index`, so nothing secret is stored. An IMPORTED account is a private key
+ *  the wallet did not derive, so it cannot be reproduced from the phrase: it carries its
+ *  own scrypt-encrypted keystore (`json`, same password as the root), which is decrypted
+ *  into the memory-only session at unlock. The ciphertext on disk is as safe as the root
+ *  keystore beside it. */
 export interface HdAccount {
   index: number
   address: string
   label?: string
+  kind?: 'hd' | 'imported'
+  /** Web3 Secret Storage JSON — present only for an imported account. */
+  json?: string
 }
 
 /** The persisted account registry. `activeIndex` is the derivation index (not a list
@@ -242,7 +251,13 @@ export async function loadAccounts(): Promise<AccountList | null> {
             (a): a is HdAccount =>
               !!a && typeof a.index === 'number' && typeof a.address === 'string',
           )
-          .map((a) => ({ index: a.index, address: a.address, label: a.label }))
+          .map((a) => ({
+            index: a.index,
+            address: a.address,
+            label: a.label,
+            kind: a.kind === 'imported' ? ('imported' as const) : ('hd' as const),
+            json: a.json,
+          }))
         if (accounts.length > 0) {
           const activeIndex =
             typeof parsed.activeIndex === 'number' &&
@@ -320,25 +335,54 @@ export async function unlockWallet(password: string, onProgress?: ProgressFn): P
   const root = await ethers.Wallet.fromEncryptedJson(account.json, password, onProgress)
   const mnemonic = root.mnemonic?.phrase ?? null
 
-  // Re-derive whichever account was active. A raw-key import has no mnemonic and lives
-  // only at index 0, so it is used as-is; an HD wallet derives the active index from its
-  // phrase. If the registry ever points at an account this keystore cannot produce
-  // (should not happen), fall back to account 0 rather than stranding the user.
   const list = await loadAccounts()
+  // Decrypt any imported accounts up front (same password as the root) so they can be
+  // switched to later without re-authenticating, exactly like the mnemonic.
+  const imported = await decryptImported(list, password)
+
+  // Re-derive whichever account was active. An imported account uses its decrypted key; an
+  // HD account derives from the phrase; index 0 is always the root keystore's own wallet.
   const activeIndex = list?.activeIndex ?? 0
-  const key = deriveActiveKey(root, mnemonic, activeIndex)
-  await startSession(key)
+  const key = deriveActiveKey(root, mnemonic, activeIndex, imported)
+  await startSession(key, imported)
   return key
 }
 
-/** Build the `UnlockedKey` for a given active index from an already-decrypted root
- *  wallet. Shared by unlock and session-resume so both agree on how an index maps to a
- *  key. Index 0 is always the keystore's own wallet; higher indexes need the mnemonic. */
+/** Decrypt every imported account's keystore with the wallet password. An entry that
+ *  will not decrypt is skipped rather than failing the whole unlock. */
+async function decryptImported(
+  list: AccountList | null,
+  password: string,
+): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  if (!list) return out
+  for (const a of list.accounts) {
+    if (a.kind === 'imported' && a.json) {
+      try {
+        const w = await ethers.Wallet.fromEncryptedJson(a.json, password)
+        out[String(a.index)] = w.privateKey
+      } catch {
+        /* wrong password for this one, or corrupt — leave it out; HD accounts still work */
+      }
+    }
+  }
+  return out
+}
+
+/** Build the `UnlockedKey` for a given active index. Shared by unlock and session-resume
+ *  so both agree on how an index maps to a key: an imported index uses its decrypted key,
+ *  a higher HD index needs the mnemonic, and index 0 is the keystore's own wallet. */
 function deriveActiveKey(
   root: ethers.Wallet,
   mnemonic: string | null,
   activeIndex: number,
+  imported?: Record<string, string>,
 ): UnlockedKey {
+  const pk = imported?.[String(activeIndex)]
+  if (pk) {
+    const w = new ethers.Wallet(pk)
+    return { address: w.address, privateKey: pk, index: activeIndex, mnemonic }
+  }
   if (mnemonic && activeIndex > 0) {
     const derived = deriveHdWallet(mnemonic, activeIndex)
     return { address: derived.address, privateKey: derived.privateKey, index: activeIndex, mnemonic }
@@ -386,18 +430,27 @@ interface SessionEntry {
    *  without re-entering the password. Null for a raw-key import. This is the same
    *  security tier as `privateKey`: it never reaches `chrome.storage.local`. */
   mnemonic: string | null
+  /** Decrypted private keys of the IMPORTED accounts, keyed by their registry index. Held
+   *  only here (memory-only session) so an imported account can be switched to without the
+   *  password, exactly like the mnemonic above. Absent when there are no imported accounts. */
+  imported?: Record<string, string>
   /** When the password was last accepted. Drives the auto-lock deadline. */
   unlockedAt: number
 }
 
 /** Open a session for an already-decrypted key. Exported because a freshly created
- *  wallet is confirmed by its owner after `createWallet` has returned. */
-export async function startSession(key: UnlockedKey): Promise<void> {
+ *  wallet is confirmed by its owner after `createWallet` has returned. `imported` carries
+ *  the decrypted imported-account keys forward so switching to them needs no password. */
+export async function startSession(
+  key: UnlockedKey,
+  imported?: Record<string, string>,
+): Promise<void> {
   const entry: SessionEntry = {
     privateKey: key.privateKey,
     address: key.address,
     index: key.index,
     mnemonic: key.mnemonic,
+    ...(imported && Object.keys(imported).length ? { imported } : {}),
     unlockedAt: Date.now(),
   }
   await memorySet(JSON.stringify(entry))
@@ -426,14 +479,16 @@ export async function switchActiveAccount(index: number): Promise<UnlockedKey> {
   if (!target) throw new Error('That account does not exist.')
 
   let key: UnlockedKey
-  if (index === entry.index) {
-    // Already the active account (e.g. the wallet's only account): the session's own key
-    // is the answer, no derivation needed.
+  const importedPk = entry.imported?.[String(index)]
+  if (importedPk) {
+    // An imported account: its key was decrypted at unlock and rides the session.
+    key = { address: target.address, privateKey: importedPk, index, mnemonic: entry.mnemonic }
+  } else if (index === entry.index) {
+    // Already the active account: the session's own key is the answer, no derivation.
     key = { address: entry.address, privateKey: entry.privateKey, index, mnemonic: entry.mnemonic }
   } else {
-    // Any other index needs the phrase; a raw-key import never reaches here for index > 0
-    // because it has exactly one account, but guard anyway.
-    if (!entry.mnemonic) throw new Error('This wallet cannot switch accounts.')
+    // Any other HD index needs the phrase.
+    if (!entry.mnemonic) throw new Error('This wallet cannot switch to that account.')
     const derived = deriveHdWallet(entry.mnemonic, index)
     key = { address: derived.address, privateKey: derived.privateKey, index, mnemonic: entry.mnemonic }
   }
@@ -446,6 +501,7 @@ export async function switchActiveAccount(index: number): Promise<UnlockedKey> {
       address: key.address,
       index: key.index,
       mnemonic: key.mnemonic,
+      ...(entry.imported ? { imported: entry.imported } : {}),
       unlockedAt: entry.unlockedAt,
     } satisfies SessionEntry),
   )
@@ -478,6 +534,70 @@ export async function addHdAccount(label?: string): Promise<AccountList> {
   const next: AccountList = { accounts: [...list.accounts, account], activeIndex: list.activeIndex }
   await saveAccounts(next)
   return next
+}
+
+/**
+ * Import a raw private key as an ADDITIONAL account, alongside the HD accounts. Works for
+ * any wallet — HD or itself imported — because it does not derive from the phrase: it
+ * encrypts the pasted key into its own keystore under the SAME wallet password, so one
+ * unlock opens it and every other account together.
+ *
+ * The password is required (to encrypt with it, and to verify it against the root before
+ * writing anything), and the new key is dropped into the live session so the account is
+ * usable immediately without a re-unlock. Does not change which account is active.
+ */
+export async function addImportedAccount(
+  privateKey: string,
+  password: string,
+  label?: string,
+): Promise<{ list: AccountList; index: number; address: string }> {
+  const account = await loadAccount()
+  if (!account) throw new Error('There is no wallet on this device yet.')
+
+  // Verify the password unlocks this wallet before we encrypt the new key with it — an
+  // imported keystore under a different password would silently fail to open at unlock.
+  await ethers.Wallet.fromEncryptedJson(account.json, password)
+
+  const trimmedKey = privateKey.trim()
+  let wallet: ethers.Wallet
+  try {
+    wallet = new ethers.Wallet(trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`)
+  } catch {
+    throw new Error('That is not a valid private key. It should be 64 hex characters, usually with a 0x in front.')
+  }
+
+  const list =
+    (await loadAccounts()) ?? { accounts: [{ index: 0, address: account.address }], activeIndex: 0 }
+  if (list.accounts.some((a) => a.address.toLowerCase() === wallet.address.toLowerCase())) {
+    throw new Error('That account is already in this wallet.')
+  }
+
+  const json = await wallet.encrypt(password, { scrypt: { N: SCRYPT_N } })
+  const nextIndex = list.accounts.reduce((max, a) => Math.max(max, a.index), -1) + 1
+  const trimmed = label?.trim()
+  const acct: HdAccount = {
+    index: nextIndex,
+    address: wallet.address,
+    kind: 'imported',
+    json,
+    ...(trimmed ? { label: trimmed } : {}),
+  }
+  const next: AccountList = { accounts: [...list.accounts, acct], activeIndex: list.activeIndex }
+  await saveAccounts(next)
+
+  // Make the new key usable this session without another unlock.
+  const raw = await memoryGet()
+  if (raw) {
+    try {
+      const entry = JSON.parse(raw) as SessionEntry
+      const imported = { ...(entry.imported ?? {}), [String(nextIndex)]: wallet.privateKey }
+      await memorySet(JSON.stringify({ ...entry, imported }))
+    } catch {
+      /* no readable session — the account is persisted and works after the next unlock */
+    }
+  }
+
+  return { list: next, index: nextIndex, address: wallet.address }
 }
 
 /** Rename an account in the registry. Labels are cosmetic and hold no key material, so

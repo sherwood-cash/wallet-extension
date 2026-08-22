@@ -97,9 +97,21 @@ const accountName = (a: HdAccount): string => a.label?.trim() || `Account ${a.in
  * a short reason rather than hidden — hiding it would read as a missing feature.
  */
 function Accounts({ vault }: { vault: ReturnType<typeof useVault> }) {
-  const { accounts, activeIndex, canAddAccount, busy, switchAccount, addAccount, renameAccount } = vault
+  const { accounts, activeIndex, canAddAccount, busy, error, switchAccount, addAccount, renameAccount, importPrivateKey } =
+    vault
   const [renaming, setRenaming] = useState<number | null>(null)
   const [draft, setDraft] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [pk, setPk] = useState('')
+  const [pw, setPw] = useState('')
+
+  async function submitImport() {
+    if (!pk.trim() || !pw) return
+    await importPrivateKey(pk.trim(), pw)
+    setImporting(false)
+    setPk('')
+    setPw('')
+  }
 
   const active = accounts.find((a) => a.index === activeIndex) ?? accounts[0] ?? null
 
@@ -185,6 +197,11 @@ function Accounts({ vault }: { vault: ReturnType<typeof useVault> }) {
                       Active
                     </span>
                   )}
+                  {a.kind === 'imported' && (
+                    <span className="rounded-full border border-gold/40 bg-gold/10 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-gold">
+                      Imported
+                    </span>
+                  )}
                 </div>
                 <span className="block truncate font-mono text-[11px] text-muted">
                   {short(a.address)}
@@ -202,19 +219,64 @@ function Accounts({ vault }: { vault: ReturnType<typeof useVault> }) {
         })}
       </div>
 
-      <button
-        className="btn-ghost mt-2 w-full"
-        disabled={busy || !canAddAccount}
-        onClick={() => void addAccount()}
-      >
-        <Plus width={13} height={13} />
-        Add account
-      </button>
+      <div className="mt-2 flex gap-2">
+        <button
+          className="btn-ghost flex-1"
+          disabled={busy || !canAddAccount}
+          onClick={() => void addAccount()}
+        >
+          <Plus width={13} height={13} />
+          Add account
+        </button>
+        <button
+          className="btn-ghost flex-1"
+          disabled={busy}
+          onClick={() => setImporting((v) => !v)}
+        >
+          Import key
+        </button>
+      </div>
       {!canAddAccount && accounts.length > 0 && (
         <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
-          This wallet was imported from a private key, so it holds a single account. Import
-          a recovery phrase to derive more.
+          This wallet has no recovery phrase, so it cannot derive more accounts — but you can
+          still import a private key as an extra account below.
         </p>
+      )}
+
+      {importing && (
+        <div className="inset mt-2 space-y-2 px-3 py-3">
+          <span className="label">Import a private key as a new account</span>
+          <input
+            className="input font-mono text-[12px]"
+            placeholder="0x… private key"
+            spellCheck={false}
+            autoComplete="off"
+            value={pk}
+            onChange={(e) => setPk(e.target.value)}
+          />
+          <input
+            className="input text-[13px]"
+            type="password"
+            placeholder="Wallet password"
+            autoComplete="off"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void submitImport()
+            }}
+          />
+          {error && <p className="text-[11px] leading-relaxed text-neg">{error}</p>}
+          <button
+            className="btn-primary w-full"
+            disabled={busy || !pk.trim() || !pw}
+            onClick={() => void submitImport()}
+          >
+            {busy ? 'Importing…' : 'Import account'}
+          </button>
+          <p className="text-[10.5px] leading-relaxed text-muted">
+            The key is encrypted with your wallet password and stored on this device only.
+          </p>
+        </div>
       )}
     </section>
   )
