@@ -13,6 +13,14 @@ declare namespace chrome {
   namespace tabs {
     function create(props: { url: string; active?: boolean }): Promise<unknown>
   }
+  namespace permissions {
+    interface Permissions {
+      origins?: string[]
+      permissions?: string[]
+    }
+    function request(permissions: Permissions): Promise<boolean>
+    function contains(permissions: Permissions): Promise<boolean>
+  }
   namespace storage {
     interface Area {
       get(keys: string | string[] | null): Promise<Record<string, unknown>>

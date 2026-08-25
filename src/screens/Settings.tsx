@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { DEPLOYMENT, EXPLORER } from '@app/config'
 import { useAccountState } from '../state'
 import { useVault } from '../wallet/useVault'
-import { currentRpc, customRpc, saveCustomRpc, clearCustomRpc, testRpc } from '../wallet/rpc'
+import { currentRpc, customRpc, saveCustomRpc, clearCustomRpc, testRpc, grantRpcHost } from '../wallet/rpc'
 import {
   Copy,
   ExternalLink,
@@ -441,6 +441,9 @@ function Network() {
   const save = async () => {
     setTesting(true)
     setNote(null)
+    // Ask for host access to this RPC's origin first (from the Save gesture), so a custom
+    // host outside the two default ones is reachable — then test and save.
+    await grantRpcHost(draft)
     const res = await testRpc(draft)
     setTesting(false)
     if (!res.ok) {

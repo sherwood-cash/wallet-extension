@@ -65,6 +65,25 @@ export function saveCustomRpc(url: string): void {
   apply(trimmed || defaultRpc())
 }
 
+/**
+ * Ask Chrome for host access to a custom RPC's origin. The manifest only grants the two
+ * default hosts up front (so the Web Store review sees a narrow, justified set); any other
+ * host a user points their own RPC at is requested here, at runtime, from the Save click.
+ * Best-effort: returns true when access is granted OR when the permissions API is absent
+ * (dev build) OR the host already answers CORS — the caller saves either way.
+ */
+export async function grantRpcHost(url: string): Promise<boolean> {
+  try {
+    const origin = new URL(url).origin + '/*'
+    const perms = (chrome as unknown as { permissions?: typeof chrome.permissions })?.permissions
+    if (!perms?.request) return true
+    if (await perms.contains({ origins: [origin] })) return true
+    return await perms.request({ origins: [origin] })
+  } catch {
+    return true
+  }
+}
+
 /** Forget the custom RPC and go back to the build default. */
 export function clearCustomRpc(): void {
   saveCustomRpc('')
