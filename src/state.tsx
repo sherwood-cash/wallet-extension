@@ -28,6 +28,11 @@ import {
 } from '@app/lib/actions'
 import { signIn } from '@app/lib/privacy/encryption'
 import { indexerBaseUrl } from '@app/lib/privacy/indexer'
+import {
+  loadShieldedBalances,
+  saveShieldedBalances,
+  type CachedNoteSummary,
+} from '@app/lib/privacy/shieldedCache'
 import { readProvider } from '@app/lib/rpc'
 import { ASSETS, DEPLOYMENT, type AssetMeta } from '@app/config'
 import type { ActivityItem, Screen } from './types'
@@ -325,6 +330,14 @@ export function AccountProvider({
   const [shieldedLoading, setShieldedLoading] = useState(false)
   const [topAssets, setTopAssets] = useState<AssetMeta[]>([])
 
+  // The opaque per-account tag for the shielded-balance session cache: the UTXO pubkey,
+  // never the on-chain address (see shieldedCache.ts). Null until sign-in derives the keys.
+  const accountTag = useMemo(() => (keys ? keys.keypair.pubkey.toString() : null), [keys])
+  // Latest scan set, read by the balances effect without making it depend on the array
+  // identity — the effect keys on `scanKey`, so a re-render that only rebuilds the array
+  // does not re-run the scan.
+  const scanAssetsRef = useRef<AssetMeta[]>([])
+
   // Pull the top-by-TVL ranking once; Private mode widens to it so the shielded scan covers
   // the assets that actually trade here, not just the three defaults.
   useEffect(() => {
@@ -357,6 +370,37 @@ export function AccountProvider({
     add(customAssets)
     return list
   }, [mode, topAssets, customAssets])
+
+  // The set the shielded scan actually walks — the mode-independent UNION of every asset a
+  // balance could exist in: the defaults, the top-by-TVL ranking (which Private mode shows)
+  // and the user's own tokens. Deliberately NOT keyed on `mode`: the shielded set does not
+  // depend on which face is displayed, so flipping Normal⇄Private must not re-run the scan.
+  // It only re-fires when the asset UNIVERSE actually grows (top-TVL landing async, a token
+  // added), and even then the per-asset leafCache serves already-scanned trees from their
+  // cached frontier, so the arrival merges rather than rescanning everything.
+  const scanAssets = useMemo(() => {
+    const list: AssetMeta[] = [...DEFAULT_ASSETS]
+    const seen = new Set(DEFAULT_ASSETS.map((a) => a.token.toLowerCase()))
+    const add = (arr: AssetMeta[]) => {
+      for (const a of arr) {
+        const t = a.token.toLowerCase()
+        if (seen.has(t)) continue
+        seen.add(t)
+        list.push(a)
+      }
+    }
+    add(topAssets)
+    add(customAssets)
+    return list
+  }, [topAssets, customAssets])
+
+  // A stable signature of the scan set, so the scan effect re-runs only when the set of
+  // assets CHANGES — not on every render that rebuilds the array identity.
+  const scanKey = useMemo(
+    () => scanAssets.map((a) => a.key).sort().join(','),
+    [scanAssets],
+  )
+  scanAssetsRef.current = scanAssets
 
   // The deployment's other tokens not already shown — the "add from list" suggestions.
   const catalog = useMemo(() => {
@@ -465,25 +509,51 @@ export function AccountProvider({
     [address],
   )
 
-  // --- balances ------------------------------------------------------------
-  // Plain balances land in one Multicall3 round-trip and are cheap, so they refresh
-  // on every tick. The shielded scan walks the merkle tree and trial-decrypts every
-  // leaf, so it only runs once keys exist and streams results in as each asset lands.
+  // --- shielded cache hydration -------------------------------------------
+  // The popup is torn down on blur, so the in-memory shielded Map is gone on every reopen.
+  // Rather than show a spinner while the scan recomputes numbers it had seconds ago, paint
+  // the last computed balances straight from the memory-only session cache the moment the
+  // note keys are ready. The scan below then refreshes them underneath (tail-only, thanks to
+  // leafCache) — the cached values are a display optimisation, never the spend source.
+  useEffect(() => {
+    if (!accountTag) return
+    let alive = true
+    // A different account's balances must not linger; start this account from its own cache.
+    setShielded(new Map())
+    loadShieldedBalances(accountTag)
+      .then((cached) => {
+        if (!alive || !cached) return
+        setShielded((prev) => {
+          const next = new Map(prev)
+          for (const [key, s] of cached) {
+            // Never clobber a value the live scan has already written this session.
+            if (next.has(key)) continue
+            next.set(key, {
+              balance: ethers.BigNumber.from(s.balance),
+              count: s.count,
+              spendable: ethers.BigNumber.from(s.spendable),
+            })
+          }
+          return next
+        })
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [accountTag])
+
+  // --- plain wallet balances ----------------------------------------------
+  // One Multicall3 round-trip, cheap, so it refreshes on every tick and follows the displayed
+  // asset list. This alone drives `loading`, so the wallet view (and Normal mode) shows
+  // numbers the moment it lands — it never waits on the shielded scan.
   useEffect(() => {
     if (!address) {
       setWallet(new Map())
-      setShielded(new Map())
       setLoading(false)
-      setShieldedLoading(false)
-      setRefreshing(false)
       return
     }
     let alive = true
-    setRefreshing(true)
-
-    // Plain wallet balances: one Multicall3 round-trip. This alone drives `loading`, so the
-    // wallet view (and Normal mode) shows numbers the moment it lands — it never waits on the
-    // shielded scan, which is what used to leave BOTH modes stuck on a spinner.
     withTimeout(fetchAssetBalances(readProvider, address, assets), 20000)
       .then((m) => {
         if (alive) setWallet(m)
@@ -492,33 +562,69 @@ export function AccountProvider({
       .finally(() => {
         if (alive) setLoading(false)
       })
-
-    // Shielded scan: only once note keys exist. Streams each asset in as it resolves and
-    // carries its own loading flag, kept separate from `loading` on purpose.
-    if (keys) {
-      setShieldedLoading(true)
-      withTimeout(
-        getShieldedBalances(readProvider, assets, keys, DEPLOYMENT.deployBlock, (key, summary) => {
-          if (alive) setShielded((prev) => new Map(prev).set(key, summary))
-        }),
-        60000,
-      )
-        .catch((e) => console.error('shielded balances', e))
-        .finally(() => {
-          if (alive) {
-            setShieldedLoading(false)
-            setRefreshing(false)
-          }
-        })
-    } else {
-      setShieldedLoading(false)
-      setRefreshing(false)
-    }
-
     return () => {
       alive = false
     }
-  }, [address, keys, tick, assets])
+  }, [address, tick, assets])
+
+  // --- shielded scan -------------------------------------------------------
+  // Walks the merkle tree and trial-decrypts every leaf, so it only runs once keys exist and
+  // streams results in as each asset lands. Keyed on `scanKey` (the mode-independent asset
+  // UNION) — NOT on `mode` or the displayed `assets` — so a Normal⇄Private toggle does not
+  // rescan: the shielded set is the same regardless of which face is showing. When the asset
+  // universe grows (top-TVL landing, a token added) the per-asset leafCache serves the
+  // already-scanned trees from their cached frontier, so the new scan merges rather than
+  // re-downloading everything. Results are persisted to the session cache so the next reopen
+  // hydrates instantly (see above).
+  useEffect(() => {
+    if (!address) {
+      setShielded(new Map())
+      setShieldedLoading(false)
+      setRefreshing(false)
+      return
+    }
+    if (!keys || !accountTag) {
+      setShieldedLoading(false)
+      setRefreshing(false)
+      return
+    }
+    let alive = true
+    setRefreshing(true)
+    setShieldedLoading(true)
+    const scanned = scanAssetsRef.current
+    withTimeout(
+      getShieldedBalances(readProvider, scanned, keys, DEPLOYMENT.deployBlock, (key, summary) => {
+        if (alive) setShielded((prev) => new Map(prev).set(key, summary))
+      }),
+      60000,
+    )
+      .then((result) => {
+        if (!alive) return
+        // Persist the fresh set so the next reopen paints without a spinner.
+        const payload = new Map<string, CachedNoteSummary>()
+        for (const [key, s] of result) {
+          payload.set(key, {
+            balance: s.balance.toString(),
+            count: s.count,
+            spendable: s.spendable.toString(),
+          })
+        }
+        void saveShieldedBalances(accountTag, payload)
+      })
+      .catch((e) => console.error('shielded balances', e))
+      .finally(() => {
+        if (alive) {
+          setShieldedLoading(false)
+          setRefreshing(false)
+        }
+      })
+    return () => {
+      alive = false
+    }
+    // scanAssetsRef is read via ref; scanKey is its stable signature so the scan re-runs
+    // only when the asset universe actually changes, never on a mode flip.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, keys, accountTag, tick, scanKey])
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 

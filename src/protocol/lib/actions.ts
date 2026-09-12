@@ -11,7 +11,7 @@ import { Utxo } from './privacy/utxo'
 import { Keypair, deriveSwapKeypair } from './privacy/keypair'
 import { prepareTransaction } from './privacy/transaction'
 import { scanNotes, selectNotes, emptyTree, treeForEpoch, type OwnedNotes } from './privacy/tree'
-import { fetchNullifiersFromIndexer } from './privacy/indexer'
+import { fetchNullifiersFromIndexer, invalidateNullifiers } from './privacy/indexer'
 import { rememberTradedAsset, rememberTradedAssets } from './privacy/syncCache'
 import { VAULT_ABI, ERC20_ABI, SWAP_PARAMS_TUPLE } from './contracts/abis'
 import { DEPLOYMENT, ZERO, isNativeAsset, isQuoteAsset, type AssetMeta } from '../config'
@@ -512,6 +512,10 @@ async function migrateNotes(
     extData,
   })
   markConsumedNotes(asset, keys, args)
+  // This spend consumed nullifiers; the held spent set is now stale. Drop it so the
+  // next scan re-reads /nullifiers rather than handing an already-spent note to the
+  // next action (a double-spend the relay reverts, charging the note a failure).
+  invalidateNullifiers()
   // Wait for inclusion: the next selection re-scans, and the indexer must have seen
   // the new note before it can be picked.
   await readProvider.waitForTransaction(txHash, 1)
@@ -673,6 +677,9 @@ export async function withdraw(
   onProgress(tr('status.relaying'))
   const { txHash } = await relayWithdraw({ assetId: asset.assetId.toString(), inEpoch, proof: args, extData })
   markConsumedNotes(asset, keys, args)
+  // The withdrawn note's nullifier is on-chain now; drop the held spent set so a follow-up
+  // action re-reads it rather than reusing the note it just spent.
+  invalidateNullifiers()
   rememberTradedAsset(accountTag(keys), asset.assetId.toString())
   return txHash
 }
@@ -819,6 +826,9 @@ export async function swap(
     spent: false,
   })
   markConsumedNotes(from, keys, proofArgs)
+  // The input note's nullifier is spent on-chain; drop the held spent set so the next
+  // scan sees it and never offers the same note twice.
+  invalidateNullifiers()
 
   return { txHash, amountOut }
 }

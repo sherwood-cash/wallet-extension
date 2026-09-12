@@ -289,18 +289,46 @@ async function fetchStatus(b: string, id: string): Promise<StatusResponse> {
 //
 // A scan runs per-asset and each asset asks for this same global set, so N assets fired
 // N identical GET /nullifiers at once. Coalesce concurrent calls onto one in-flight
-// request: the burst collapses to a single fetch, and the next scan cycle fetches fresh
-// (the pending promise is cleared as soon as it settles, so there is no staleness).
+// request: the burst collapses to a single fetch.
+//
+// Coalescing alone only ever caught a simultaneous burst, though, and the scans are not
+// simultaneous: a refresh runs its primary assets and then its secondary ones, an asset
+// on both lists is scanned in each pass, and every pass paid for the whole set again. One
+// buy came to eleven fetches of the same ~95KB — around 60% of the page's traffic — to
+// answer a question whose answer only changes when a block lands.
+//
+// So the settled set is also held for NULLIFIER_TTL_MS. The window is deliberately short
+// and, more importantly, not the only thing keeping it honest: a stale set is not a
+// display bug but a spend bug — a note that looks unspent gets spent twice, the relay
+// reverts, and the note is charged a failure against its budget. Anything that MOVES
+// nullifiers must therefore call invalidateNullifiers() rather than wait the TTL out.
+const NULLIFIER_TTL_MS = 15_000
+
 let nullifiersInflight: Promise<Set<string>> | null = null
+let nullifiersCache: { at: number; set: Set<string> } | null = null
+
+/**
+ * Drop the cached spent set, so the next scan re-reads it.
+ *
+ * Call after anything that spends a note — a relayed swap, withdrawal or consolidation.
+ * The nullifiers it consumed are on-chain the moment it confirms, and a scan that misses
+ * them will hand the same note to the next action.
+ */
+export function invalidateNullifiers(): void {
+  nullifiersCache = null
+}
 
 export async function fetchNullifiersFromIndexer(_assetId: BigNumber): Promise<Set<string>> {
   const b = base()
   if (!b) throw new Error('indexer not configured')
+  if (nullifiersCache && Date.now() - nullifiersCache.at < NULLIFIER_TTL_MS) return nullifiersCache.set
   if (nullifiersInflight) return nullifiersInflight
   nullifiersInflight = (async () => {
     try {
       const data = await getJson(`${b}/nullifiers`)
-      return new Set((data.nullifiers as string[]).map((n) => n.toLowerCase()))
+      const set = new Set((data.nullifiers as string[]).map((n) => n.toLowerCase()))
+      nullifiersCache = { at: Date.now(), set }
+      return set
     } finally {
       nullifiersInflight = null
     }
