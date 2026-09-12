@@ -104,3 +104,28 @@ export async function pinSignature(address: string, sig: string): Promise<void> 
 export async function clearPinnedSignature(address: string): Promise<void> {
   await diskRemove(pinKey(address))
 }
+
+// ---------------------------------------------------------------- the username gate
+
+/**
+ * Whether the user has passed the first-visit username gate for this wallet — by CLAIMING a
+ * name on chain, or by explicitly SKIPPING it. Persisted on disk so the intro does not reappear
+ * on every reopen.
+ *
+ * Note this is only about the UI gate. The IDENTITY is made permanent by `pinSignature`, which
+ * both the claim and the skip call: passing the gate and pinning the keys happen together, so a
+ * wallet that skipped derives the exact same meta-address forever, whether or not it ever
+ * claims a name.
+ */
+const GATE_PREFIX = 'sherwood:ext:stealth-gate:'
+
+const gateKey = (address: string) => scopedKey(GATE_PREFIX, address)
+
+export async function stealthGatePassed(address: string): Promise<boolean> {
+  const raw = await diskGet(gateKey(address))
+  return raw === '1'
+}
+
+export async function passStealthGate(address: string): Promise<void> {
+  await diskSet(gateKey(address), '1')
+}

@@ -21,7 +21,7 @@ import { prepareTransaction } from '../privacy/transaction'
 import { scanNotes, emptyTree, treeForEpoch } from '../privacy/tree'
 import type { Keys } from '../actions'
 import { deposit as vaultDeposit } from '../actions'
-import type { StealthKeys } from './crypto'
+import { SCHEME_ID, type StealthKeys } from './crypto'
 import { privateKeyFor, type StealthWallet } from './scan'
 import { relayStealthDeposit, fetchRelayInfo } from './api'
 
@@ -31,10 +31,42 @@ const ERC3009_ABI = [
   'function name() view returns (string)',
 ]
 
+/** The slice of ERC-6538 the extension needs: publish a meta-address, optionally with a name. */
+export const REGISTRY_ABI = [
+  'function registerKeys(uint256 schemeId, bytes stealthMetaAddress)',
+  'function registerKeysWithUsername(uint256 schemeId, bytes stealthMetaAddress, string username)',
+  'function registerUsername(string username)',
+]
+
 export interface StealthContracts {
   announcer: string
   registry: string
   forwarder: string | null
+}
+
+/**
+ * Publish the meta-address on the ERC-6538 registry, claiming a name in the same transaction
+ * when one is given.
+ *
+ * One transaction rather than two on the first run: a user who registers keys and then fails
+ * to confirm a second prompt ends up discoverable by address but not by name, the confusing
+ * half-state the combined entrypoint exists to avoid. The signer is the same local wallet key
+ * that unlocks the extension, so this is submitted directly with no external prompt.
+ */
+export async function registerStealthKeys(
+  signer: ethers.Signer,
+  contracts: StealthContracts,
+  keys: StealthKeys,
+  username: string | null,
+  onProgress: Progress = () => {},
+): Promise<string> {
+  const registry = new ethers.Contract(contracts.registry, REGISTRY_ABI, signer)
+  onProgress(username ? `Claiming @${username}…` : 'Publishing your stealth keys…')
+  const tx = username
+    ? await registry.registerKeysWithUsername(SCHEME_ID, keys.metaAddress, username)
+    : await registry.registerKeys(SCHEME_ID, keys.metaAddress)
+  await tx.wait()
+  return tx.hash
 }
 
 /**
