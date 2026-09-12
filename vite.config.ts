@@ -20,6 +20,14 @@ function copyManifest() {
   }
 }
 
+// The dapp-connection scripts the manifest references by FIXED path. They must emit as
+// exactly these filenames (not hashed) so manifest.json keeps resolving after a rebuild.
+const FIXED_ENTRIES: Record<string, string> = {
+  background: path.resolve(here, 'src/dapp/background.ts'),
+  content: path.resolve(here, 'src/dapp/content.ts'),
+  inpage: path.resolve(here, 'src/dapp/inpage.ts'),
+}
+
 export default defineConfig({
   // Extension pages load from chrome-extension://<id>/, with the bundle at the root of
   // that origin, so relative asset URLs are the only ones that resolve.
@@ -45,8 +53,24 @@ export default defineConfig({
     outDir,
     emptyOutDir: true,
     target: 'es2022',
-    // One popup page: splitting buys nothing and a single bundle keeps the surface the
-    // MV3 content-security-policy has to allow as small as possible.
     chunkSizeWarningLimit: 8000,
+    rollupOptions: {
+      // The popup page (index.html), the approval popup page (approval.html) and the three
+      // extension scripts (background / content / inpage). HTML entries carry their own
+      // hashed JS; the three scripts below are named so the manifest can reference them.
+      input: {
+        index: path.resolve(here, 'index.html'),
+        approval: path.resolve(here, 'approval.html'),
+        ...FIXED_ENTRIES,
+      },
+      output: {
+        // background.js / content.js / inpage.js keep their names; everything else (the
+        // page bundles) stays hashed under assets/ so caching still works.
+        entryFileNames: (chunk) =>
+          chunk.name in FIXED_ENTRIES ? '[name].js' : 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+      },
+    },
   },
 })

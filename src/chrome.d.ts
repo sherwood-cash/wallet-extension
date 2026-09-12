@@ -9,9 +9,43 @@ declare namespace chrome {
     const id: string | undefined
     function getURL(path: string): string
     const lastError: { message?: string } | undefined
+    interface MessageSender {
+      id?: string
+      origin?: string
+      url?: string
+      tab?: { id?: number; url?: string }
+    }
+    /** Overloads: callback form (returns void, `true` from the listener keeps the channel
+     *  open) and promise form used by the popup/background. */
+    function sendMessage(message: unknown, responseCallback?: (response: any) => void): void
+    const onMessage: {
+      addListener(
+        callback: (message: any, sender: MessageSender, sendResponse: (response?: any) => void) => boolean | void,
+      ): void
+      removeListener(callback: (...args: any[]) => any): void
+    }
   }
   namespace tabs {
+    interface Tab {
+      id?: number
+      url?: string
+    }
     function create(props: { url: string; active?: boolean }): Promise<unknown>
+    function query(queryInfo: Record<string, unknown>): Promise<Tab[]>
+    function sendMessage(tabId: number, message: unknown, responseCallback?: (response: any) => void): void
+  }
+  namespace windows {
+    interface Window {
+      id?: number
+    }
+    function create(
+      props: { url?: string; type?: string; width?: number; height?: number; focused?: boolean },
+      callback?: (window?: Window) => void,
+    ): void
+    function remove(windowId: number): Promise<void>
+    const onRemoved: {
+      addListener(callback: (windowId: number) => void): void
+    }
   }
   namespace permissions {
     interface Permissions {

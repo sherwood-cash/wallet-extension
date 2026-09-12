@@ -3,6 +3,7 @@
 // Env vars we read at build time (see src/lib/uniswapTokens.ts).
 interface ImportMetaEnv {
   readonly VITE_UNISWAP_PROXY?: string
+  readonly VITE_RPC_URL?: string
   readonly DEV: boolean
   readonly PROD: boolean
 }
