@@ -212,12 +212,14 @@ const NORMAL_RAIL: RailItem[] = [
   { id: 'settings', label: 'Settings', icon: <Cog width={ICON} height={ICON} /> },
 ]
 
-// Private mode is the shielded pool: the three pool flows.
+// Private mode is the shielded pool: the three pool flows, plus a stealth Receive screen
+// that hands out one-time addresses and shields what lands in them into the vault.
 const PRIVATE_RAIL: RailItem[] = [
   WALLET_ITEM,
   { id: 'deposit', label: 'Deposit', icon: <ArrowDown width={ICON} height={ICON} /> },
   { id: 'swap', label: 'Swap', icon: <SwapArrows width={ICON} height={ICON} /> },
   { id: 'withdraw', label: 'Withdraw', icon: <ArrowUp width={ICON} height={ICON} /> },
+  { id: 'stealth', label: 'Receive', icon: <Shield width={ICON} height={ICON} /> },
 ]
 
 const RAIL_FOR: Record<WalletMode, RailItem[]> = {

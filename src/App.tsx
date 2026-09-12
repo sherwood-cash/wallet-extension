@@ -22,6 +22,7 @@ import { Withdraw } from './screens/Withdraw'
 import { Receive } from './screens/Receive'
 import { Send } from './screens/Send'
 import { Settings } from './screens/Settings'
+import { StealthReceive } from './screens/StealthReceive'
 import { Spinner } from './components/ui'
 import type { Screen } from './types'
 
@@ -71,6 +72,7 @@ export function App() {
           {screen === 'receive' && <Receive />}
           {screen === 'send' && <Send />}
           {screen === 'settings' && <Settings />}
+          {screen === 'stealth' && <StealthReceive />}
         </Body>
         <BottomRail screen={screen} onGo={go} />
       </div>

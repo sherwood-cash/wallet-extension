@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@noble/curves": "^1.4.0",
     "ethers": "^5.7.2",
     "ffjavascript": "^0.3.1",
     "fixed-merkle-tree": "^0.7.3",

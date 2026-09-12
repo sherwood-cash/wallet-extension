@@ -2,7 +2,7 @@
 
 /** Which screen the shell is showing. Onboarding/unlock live outside this union —
  *  they replace the whole shell rather than sit inside it. */
-export type Screen = 'home' | 'deposit' | 'swap' | 'withdraw' | 'receive' | 'send' | 'settings'
+export type Screen = 'home' | 'deposit' | 'swap' | 'withdraw' | 'receive' | 'send' | 'settings' | 'stealth'
 
 /** The three flows the segmented rail switches between. */
 export type Flow = Extract<Screen, 'deposit' | 'swap' | 'withdraw'>
