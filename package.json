@@ -1,12 +1,13 @@
 {
   "name": "sherwood-wallet-extension",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "A self-custodial Chrome wallet that deposits into, swaps inside and withdraws out of the Sherwood privacy pool.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "zip": "node scripts/zip.mjs",
     "icons": "node scripts/make-icons.mjs",
     "typecheck": "tsc --noEmit"
   },

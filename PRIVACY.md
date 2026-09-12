@@ -1,6 +1,6 @@
 # Sherwood Wallet — Privacy Policy
 
-_Last updated: 2026-08-25_
+_Last updated: 2026-09-09_
 
 Sherwood Wallet is a self-custodial browser extension. It is built so that your keys and
 your activity stay on your own device. This policy explains, plainly, what the extension
@@ -43,6 +43,33 @@ go to the endpoint you chose instead.
 Zero-knowledge proofs are generated **locally in your browser**; the proving keys are
 bundled in the extension, so nothing about a private transaction reaches any server before
 it is already private.
+
+## Stealth Receive
+
+The Private-mode **Receive** tab lets you be paid at a fresh, one-time stealth address.
+This uses the same `api.sherwood.cash` host already listed above — it adds no new host
+access — and works like this:
+
+- **Reading (finding your money).** The extension fetches stealth **status** and
+  **announcements** from `api.sherwood.cash` (`GET /stealth/status`,
+  `GET /stealth/announcements`). Announcements are pulled as an ordered public firehose
+  from a block cursor — the server is never asked "which of these are mine?" and cannot
+  answer that. Whether an announcement is yours is decided **locally** by a viewing key
+  that never leaves your device.
+- **Handing out an address.** When you generate a one-time address to receive a payment,
+  the extension may submit it to `POST /stealth/pending` so the relayer can publish the
+  on-chain announcement once funds arrive (the payer has no wallet connected and cannot
+  publish it themselves). What is sent is only the public, single-use stealth address,
+  its ephemeral public key, a view tag, and — if you chose one — the public username you
+  are publishing on purpose.
+- **Sponsored deposit.** A freshly funded stealth address holds no gas, so shielding it
+  into the vault can be relayed via `POST /stealth/relay-deposit` (with `GET
+  /stealth/relay-info` to read the relayer's terms). This submits a signed, sponsored
+  deposit authorization for that one-time address.
+
+In none of these requests is your main wallet address, private key, viewing key, or any
+personal information sent. Keys never leave the device; ownership detection is always
+local.
 
 ## Permissions
 
