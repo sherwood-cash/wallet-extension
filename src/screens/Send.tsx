@@ -196,9 +196,6 @@ export function Send() {
               value={to}
               onChange={(e) => setTo(e.target.value)}
             />
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
-              Paid in full to this address, straight from your wallet.
-            </p>
             {showRecipientError && (
               <p className="mt-1 text-[11px] text-neg">That is not a valid address.</p>
             )}
@@ -209,10 +206,6 @@ export function Send() {
           <InfoRow
             label="Wallet balance"
             value={`${balance ? fmtUnits(balance, asset.decimals) : '—'} ${asset.symbol}`}
-          />
-          <InfoRow
-            label="Gas"
-            value={`paid from this wallet in ${DEPLOYMENT.nativeCurrency.symbol}`}
           />
         </div>
 

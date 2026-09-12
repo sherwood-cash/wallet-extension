@@ -34,7 +34,7 @@ import {
   type CachedNoteSummary,
 } from '@app/lib/privacy/shieldedCache'
 import { readProvider } from '@app/lib/rpc'
-import { ASSETS, DEPLOYMENT, type AssetMeta } from '@app/config'
+import { ASSETS, DEPLOYMENT, assetByToken, type AssetMeta } from '@app/config'
 import type { ActivityItem, Screen } from './types'
 
 /** Local activity feed. Persisted per-address so reopening the popup keeps the trail. */
@@ -279,15 +279,21 @@ async function fetchTopAssets(limit = 12): Promise<AssetMeta[]> {
       if (!a || a.decimals == null || !a.symbol) continue
       const native = !!a.native
       const token = native ? ethers.constants.AddressZero : a.token
+      // Where the deployment already describes this token, its curated metadata wins — same as
+      // the web front's toAsset (lib/assets.ts). That keeps the local key/symbol/name/accent and,
+      // crucially, its local logo file for the baked-in assets. Otherwise take the backend's
+      // fields, and prefer the /assets logoUrl (a CDN URL) over the symbol-guessed local png so
+      // stocks (NVDA/TSLA/GOOGL) show their real mark instead of a mismatched token image.
+      const local = assetByToken(token)
       out.push({
         token,
-        decimals: Number(a.decimals),
+        decimals: local?.decimals ?? Number(a.decimals),
         native,
-        key: native ? 'eth' : `t:${token.toLowerCase()}`,
-        symbol: a.symbol,
-        name: a.name || a.symbol,
-        accent: '#cdb360',
-        logoUrl: a.logoUrl || undefined,
+        key: local?.key ?? (native ? 'eth' : `t:${token.toLowerCase()}`),
+        symbol: local?.symbol ?? a.symbol,
+        name: local?.name ?? a.name ?? a.symbol,
+        accent: local?.accent ?? '#cdb360',
+        logoUrl: local?.logoUrl ?? a.logoUrl ?? undefined,
         assetId: ethers.BigNumber.from(a.assetId),
       } as AssetMeta)
     }

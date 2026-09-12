@@ -11,7 +11,8 @@ import { readProvider } from '@app/lib/rpc'
 
 const RPC_KEY = 'sherwood:ext:rpc'
 
-/** The endpoint baked in at build time (the public Robinhood RPC). */
+/** The endpoint baked in at build time (Sherwood's private /rpc pass-through, which forwards
+ *  to the node with the API key server-side — serves reads and eth_sendRawTransaction alike). */
 export function defaultRpc(): string {
   return DEPLOYMENT.rpcUrl
 }

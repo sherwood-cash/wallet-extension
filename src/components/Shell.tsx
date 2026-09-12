@@ -6,10 +6,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useAccountState, type WalletMode } from '../state'
+import { useVault } from '../wallet/useVault'
+import type { HdAccount } from '../wallet/vault'
 import type { Screen } from '../types'
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   Cog,
   Copy,
   ExternalLink,
@@ -55,20 +58,7 @@ export function Header({
       <div className="flex items-center gap-2">
         <Wordmark />
         <div className="ml-auto flex items-center gap-1.5">
-          {address && (
-            <button
-              onClick={onCopy}
-              title="Copy address"
-              className="group flex items-center gap-1.5 whitespace-nowrap rounded-full border border-edge/70 bg-ink/60 px-2.5 py-1.5 font-mono text-[11px] leading-none text-white/80 shadow-soft transition active:scale-[0.97] hover:border-gold/45 hover:text-white"
-            >
-              {copied ? (
-                <span className="text-mint">copied</span>
-              ) : (
-                <span className="tracking-tight">{short(address)}</span>
-              )}
-              <Copy width={12} height={12} className="text-muted transition group-hover:text-gold" />
-            </button>
-          )}
+          {address && <AccountSwitcher address={address} onCopy={onCopy} copied={copied} />}
           <div className="flex items-center gap-0.5 rounded-full border border-edge/60 bg-ink/50 p-0.5 shadow-soft">
             <IconBtn label="Refresh balances" onClick={refresh} spin={refreshing}>
               <Refresh width={15} height={15} />
@@ -82,6 +72,142 @@ export function Header({
       <ModeToggle mode={mode} onChange={changeMode} />
       <ModeReveal reveal={reveal} />
     </header>
+  )
+}
+
+const accountName = (a: HdAccount): string => a.label?.trim() || `Account ${a.index + 1}`
+
+/** A deterministic accent for an account, derived from its address — a cheap stand-in for a
+ *  full identicon so each account reads as distinct at a glance in the switcher. */
+function avatarColor(address: string): string {
+  let h = 0
+  for (let i = 2; i < address.length; i++) h = (h * 31 + address.charCodeAt(i)) % 360
+  return `hsl(${h} 55% 45%)`
+}
+
+/** The circular colour chip that stands in for an account avatar. */
+function AccountDot({ address, size }: { address: string; size: number }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="shrink-0 rounded-full"
+      style={{ width: size, height: size, background: avatarColor(address), boxShadow: '0 0 0 1.5px #0b0d0a' }}
+    />
+  )
+}
+
+/** A small checkmark for the active row. No shared Check icon exists, so it is inline. */
+function Check({ width = 13, height = 13 }: { width?: number; height?: number }) {
+  return (
+    <svg width={width} height={height} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+/**
+ * The address pill, now a dropdown: it shows the active account and, on tap, drops a compact
+ * list of every account in the wallet so you can switch without opening Settings. Switching
+ * needs no password (see useVault.switchAccount → switchActiveAccount). Copying the current
+ * address moved into the menu so the one pill carries both jobs.
+ */
+function AccountSwitcher({ address, onCopy, copied }: { address: string; onCopy: () => void; copied: boolean }) {
+  const { accounts, activeIndex, switchAccount, busy } = useVault()
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLDivElement>(null)
+
+  // Close on any click outside the widget, and on Escape.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  async function pick(index: number) {
+    if (index !== activeIndex) await switchAccount(index)
+    setOpen(false)
+  }
+
+  const multiple = accounts.length > 1
+
+  return (
+    <div ref={wrap} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Switch account"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="group flex items-center gap-1.5 whitespace-nowrap rounded-full border border-edge/70 bg-ink/60 px-2 py-1.5 font-mono text-[11px] leading-none text-white/80 shadow-soft transition active:scale-[0.97] hover:border-gold/45 hover:text-white"
+      >
+        <AccountDot address={address} size={14} />
+        {copied ? (
+          <span className="font-sans text-mint">copied</span>
+        ) : (
+          <span className="tracking-tight">{short(address)}</span>
+        )}
+        <ChevronDown
+          width={12}
+          height={12}
+          className={`text-muted transition group-hover:text-gold ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-30 mt-1.5 w-60 rounded-xl border border-edge bg-panel p-1.5 shadow-card"
+        >
+          {multiple && (
+            <div className="max-h-64 space-y-1 overflow-y-auto">
+              {accounts.map((a) => {
+                const isActive = a.index === activeIndex
+                return (
+                  <button
+                    key={a.index}
+                    role="menuitem"
+                    disabled={busy}
+                    onClick={() => void pick(a.index)}
+                    className={`row w-full ${isActive ? 'bg-mint/[0.06]' : ''}`}
+                  >
+                    <AccountDot address={a.address} size={22} />
+                    <span className="min-w-0 flex-1 text-left leading-tight">
+                      <span className="block truncate text-[12.5px] font-semibold text-white">
+                        {accountName(a)}
+                      </span>
+                      <span className="block truncate font-mono text-[11px] text-muted">
+                        {short(a.address)}
+                      </span>
+                    </span>
+                    {isActive && <span className="shrink-0 text-mint"><Check /></span>}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <button
+            role="menuitem"
+            onClick={() => {
+              onCopy()
+              setOpen(false)
+            }}
+            className={`row w-full ${multiple ? 'mt-1 border-t border-edge pt-2' : ''}`}
+          >
+            <Copy width={15} height={15} className="shrink-0 text-muted" />
+            <span className="flex-1 text-left text-[12px] font-semibold text-white/85">Copy address</span>
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -1,7 +1,7 @@
 {
   "network": "robinhood",
   "chainId": 4663,
-  "rpcUrl": "",
+  "rpcUrl": "https://api.sherwood.cash/rpc",
   "indexerUrl": "",
   "relayerUrl": "",
   "explorer": "",

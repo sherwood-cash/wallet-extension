@@ -55,7 +55,6 @@ export function Receive() {
     <div className="space-y-3">
       <ScreenHeader
         title="Receive"
-        subtitle="Your wallet address on Sherwood"
         onBack={() => go('home')}
       />
 
