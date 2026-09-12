@@ -41,7 +41,9 @@ The extension isn't on the Chrome Web Store yet, so install the packaged build m
 > Developer-mode extensions are safe to run — the entire source is in this repository and
 > the build is unminified, so you can read exactly what you loaded.
 
-*Chrome Web Store listing: coming soon.*
+> **Why not the Chrome Web Store?** Google bans privacy-focused wallet extensions from
+> the store. To protect your privacy, Sherwood is distributed directly instead — from
+> source you can read and build yourself.
 
 ### Option B — Build from source
 
