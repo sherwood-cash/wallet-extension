@@ -1,35 +1,68 @@
 # Sherwood Wallet
 
-A self-custodial Chrome wallet that **deposits into**, **swaps inside**, and **withdraws
-out of** the Sherwood privacy pool. Keys never leave the browser, and every proof is
-built locally — nothing about a transaction reaches a server before it is already
-private.
+A self-custodial Chrome/Brave/Edge extension wallet for the [Sherwood](https://sherwood.cash)
+privacy vault. It is an ordinary EVM wallet **plus a private mode**: deposit into, swap
+inside, and withdraw out of the shielded pool, with a built-in **stealth Receive** tab
+for one-time addresses. Keys never leave your browser and every zero-knowledge proof is
+built locally — nothing about a transaction reaches a server before it is already private.
 
-## Build it
+**Version 1.1.0** · Manifest V3 · source is public and unminified.
+
+---
+
+## Features
+
+- **Normal ⇄ Private toggle** — a plain wallet on one side, the shielded vault on the other.
+- **Deposit / Swap / Withdraw** privately inside the vault (Groth16 proofs built on-device).
+- **Stealth Receive** (Private mode) — generate one-time receiving addresses, regenerate
+  more, see the total ETH + USDG received across all of them, and shield it straight into
+  the vault. No consolidation step: funds are shielded on behalf of your main wallet.
+- **HD accounts** + import an existing private key as an extra account.
+- **Custom RPC** — point the wallet at your own node from Settings.
+
+---
+
+## Install
+
+### Option A — Prebuilt (recommended)
+
+The extension isn't on the Chrome Web Store yet, so install the packaged build manually
+(takes a minute):
+
+1. **Download** the latest build:
+   [`sherwood-wallet-extension.zip`](https://sherwood.cash/sherwood-wallet-extension.zip)
+   (or open [sherwood.cash](https://sherwood.cash) → your wallet menu → **Sherwood extension**).
+2. **Unzip** it — you get a folder.
+3. Open **`chrome://extensions`** in Chrome (or Brave / Edge).
+4. Turn on **Developer mode** (top-right toggle).
+5. Click **Load unpacked** and select the unzipped folder.
+6. **Pin** *Sherwood Wallet* from the puzzle-piece icon, then click it to start.
+
+> Developer-mode extensions are safe to run — the entire source is in this repository and
+> the build is unminified, so you can read exactly what you loaded.
+
+*Chrome Web Store listing: coming soon.*
+
+### Option B — Build from source
 
 ```bash
 npm install
-cp .env.example .env      # fill in VITE_RPC_URL
+cp .env.example .env      # set VITE_RPC_URL (+ VITE_INDEXER_URL / VITE_RELAYER_URL)
 npm run icons             # renders the toolbar PNGs from the brand mark
 npm run build             # type-checks, then writes dist/
+npm run zip               # optional: packages dist/ into dist-zip/sherwood-wallet-<version>.zip
 ```
 
-Then in Chrome:
+Then load `dist/` via **Load unpacked** as in steps 3–6 above. After a change, re-run
+`npm run build` and hit the reload arrow on the extension's card in `chrome://extensions`.
 
-1. open `chrome://extensions`
-2. turn on **Developer mode** (top right)
-3. **Load unpacked** → pick `dist/`
-4. pin *Sherwood Wallet* and click it
+`npm run dev` serves the popup at `localhost:5173` as an ordinary web page for fast
+iteration (the wallet falls back to `localStorage`/`sessionStorage` when the `chrome.*`
+APIs are absent). Note that **proving does not work under `dev`** — the prover needs
+`/circuits/transaction2.zkey`, which only resolves once the bundle is the root of the
+extension origin.
 
-After a change, re-run `npm run build` and hit the reload arrow on the card in
-`chrome://extensions`.
-
-`npm run dev` serves the popup at `localhost:5173` as an ordinary web page, which is far
-faster to iterate against — the wallet falls back to `localStorage`/`sessionStorage`
-when the `chrome.*` APIs are absent. It is not the real thing, though: MV3's CSP and the
-extension origin only exist in a loaded build. Proving in particular does **not** work
-under `dev`, because the prover asks for `/circuits/transaction2.zkey`, which only
-resolves once the bundle is the root of the extension origin.
+---
 
 ## How it works
 
@@ -37,76 +70,48 @@ resolves once the bundle is the root of the extension origin.
 
 There is no injected wallet inside a popup, so this one carries its own.
 
-- The private key is encrypted with your password into a standard Web3 Secret Storage
-  keystore (scrypt, N = 2¹⁵) and kept in `chrome.storage.local`.
+- Your private key is encrypted with your password into a standard Web3 Secret Storage
+  keystore (scrypt, N = 2¹⁴) kept in `chrome.storage.local`.
 - The **decrypted** key only ever lives in `chrome.storage.session`, which Chrome backs
-  with memory and never writes to the profile directory. It dies with the browser.
+  with memory and never writes to disk. It dies with the browser.
 
-Someone who copies a profile directory off a laptop therefore gets the ciphertext and
-nothing else, and each password guess costs an scrypt run.
+Someone who copies your profile directory therefore gets ciphertext and nothing else, and
+each password guess costs a full scrypt run.
 
-### Sign-in
+### Sign-in & proving
 
-Spending a shielded note needs keys derived from a signature over a fixed message. The
-web app has to pop a wallet prompt for that; here the local key signs it silently, so a
-single password gets you all the way in. Locking clears that cached signature too —
-otherwise a "locked" wallet would still have spendable notes.
+Spending a shielded note needs keys derived from a signature over a fixed message; the
+local key signs it silently, so one password gets you all the way in. Locking clears that
+cached signature. A Groth16 proof takes 10–30s, and Chrome destroys a popup the moment it
+loses focus — so any flow that proves offers to reopen itself as a full tab (`?view=tab`)
+where nothing can close the page.
 
-### Proving and the popup lifecycle
+### The circuits are bundled, not fetched
 
-A Groth16 proof takes 10–30 seconds, and Chrome destroys a popup the instant it loses
-focus, which would throw away a half-built transaction. Every flow that proves says so
-while it works and offers to reopen itself as a real tab (`?view=tab`), where nothing
-can close the page.
+`public/circuits/` ships the proving key and witness generator. MV3 forbids fetching
+remote code, and a wallet whose proving key arrives over the network is a wallet that can
+be served a *different* proving key.
 
-### The circuits
+---
 
-`public/circuits/` holds the proving key and the witness generator — 19 MB of the
-repository. That copy is deliberate. MV3 forbids fetching remote code, and a wallet
-whose proving key arrives over the network is a wallet that can be served a *different*
-proving key.
+## Permissions
 
-## Layout
+Minimal, and each is justified:
 
-```
-manifest.json           MV3. 'wasm-unsafe-eval' is required — snarkjs proves in WASM.
-vite.config.ts          @app -> src/protocol, plus the node polyfills the prover needs
-src/
-  App.tsx               onboarding → unlock → shell
-  state.tsx             the one shared store: keys, balances, activity
-  wallet/               keystore, session handling, the useVault hook
-  screens/              Home, Deposit, Swap, Withdraw, Receive, Send, Settings
-  components/           Shell, TokenPicker, and the shared ui.tsx primitives
-  protocol/             the Sherwood protocol layer, vendored (see below)
-  fonts.css             Cinzel / Manrope / JetBrains Mono, bundled rather than fetched
-scripts/make-icons.mjs  the toolbar icons, rendered from the brand mark
-```
+- `storage` — the encrypted keystore and your settings.
+- `host_permissions`: `rpc.mainnet.chain.robinhood.com` (chain reads / broadcast) and
+  `api.sherwood.cash` (pool, stealth and relayer data).
+- `optional_host_permissions: https://*/*` — **not granted up front**; requested at
+  runtime only when you save a custom RPC in Settings.
 
-### `src/protocol/` is vendored
+No analytics, no tracking, no remote code. See [`PRIVACY.md`](./PRIVACY.md).
 
-Note scanning, the Groth16 prover, the Uniswap routing and the vault ABIs are the same
-modules the Sherwood web app runs, copied in rather than reimplemented — a wallet and a
-website that disagree about how a note is built produce funds nobody can spend. The
-`@app/*` alias is kept so any file here can be diffed against its upstream copy without
-import noise.
-
-Consequence worth knowing: **changes to the protocol layer must be made upstream and
-re-copied**, not edited here.
-
-## Configuration
-
-`src/protocol/deployment.json` pins the chain, the vault and the router addresses. Its
-three endpoint fields ship blank and come from the environment at build time (see
-`.env.example`), because an RPC URL with a provider key in its path is a credential and
-this repository is public.
-
-`manifest.json` currently requests `https://*/*` in `host_permissions`. That is broader
-than any single deployment needs — it is that wide because the RPC, indexer and relayer
-are all configurable. Pin it to the hosts you actually publish against before shipping
-to the Web Store.
+---
 
 ## Security
 
-This code has not been audited. Treat it as what it is: a working implementation of a
-self-custodial wallet, published so it can be read. If you find something, open an
-issue.
+This code has **not** been externally audited. Treat it as a working, readable
+implementation of a self-custodial wallet. Found something? Open an issue. `src/protocol/`
+is vendored from the Sherwood web app (note scanning, the prover, routing, vault ABIs) so
+the two never disagree about how a note is built — protocol changes are made upstream and
+re-copied, not edited here.
