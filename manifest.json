@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sherwood Wallet",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Private deposits, swaps and withdrawals on Sherwood — a self-custodial wallet in your browser.",
   "action": {
     "default_popup": "index.html",

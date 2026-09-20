@@ -197,6 +197,28 @@ async function adopt(key: UnlockedKey): Promise<void> {
     canAddAccount: key.mnemonic !== null,
     error: null,
   })
+  // The injected provider caches the connected account and only updates on an
+  // `accountsChanged` event. Switching accounts in the popup persists the new activeIndex,
+  // but without this a dapp connected in another tab keeps showing the FIRST account with no
+  // way to change it. adopt() is the single choke point for "the active account changed"
+  // (switch, add, import, unlock), so notify the background here; it broadcasts to every
+  // connected tab and is a no-op when nothing is connected.
+  notifyAccountsChanged(key.address)
+}
+
+/** Tell the dapp background the active account changed → connected sites get an
+ *  `accountsChanged` event and update live. Fire-and-forget; harmless outside the extension. */
+function notifyAccountsChanged(address: string): void {
+  try {
+    const c = (globalThis as { chrome?: typeof chrome }).chrome
+    if (c?.runtime?.sendMessage) {
+      c.runtime.sendMessage({ kind: 'wallet:accountsChanged', params: [address] }, () => {
+        void c.runtime.lastError // swallow "receiving end does not exist" when no bg listener
+      })
+    }
+  } catch {
+    /* no extension messaging available (dev / unit test) */
+  }
 }
 
 /**
