@@ -8,7 +8,7 @@
 import { ethers, BigNumber } from 'ethers'
 import { tr } from './i18n'
 import { Utxo } from './privacy/utxo'
-import { Keypair, deriveSwapKeypair } from './privacy/keypair'
+import { Keypair, deriveTemporaryKeypair } from './privacy/keypair'
 import { prepareTransaction } from './privacy/transaction'
 import { scanNotes, selectNotes, emptyTree, treeForEpoch, type OwnedNotes } from './privacy/tree'
 import { fetchNullifiersFromIndexer, invalidateNullifiers } from './privacy/indexer'
@@ -756,9 +756,9 @@ export async function swap(
   // P is a ONE-TIME key, never our wallet pubkey: it travels in the clear in the calldata,
   // so reusing the wallet's would make every swap we ever do linkable to each other and
   // scannable across every asset tree. It is derived from our key + this note's blinding,
-  // so the note stays ours and stays recoverable anywhere. See deriveSwapKeypair.
+  // so the note stays ours and stays recoverable anywhere. See deriveTemporaryKeypair.
   const outBlinding = new Utxo({ assetId: to.assetId }).blinding
-  const outKeypair = deriveSwapKeypair(keys.keypair.privkey, outBlinding)
+  const outKeypair = deriveTemporaryKeypair(keys.keypair.privkey, outBlinding)
   const outPubkey = outKeypair.pubkey
   const deadline = Math.floor(Date.now() / 1000) + (args.deadlineSecs ?? 1200)
 
@@ -938,7 +938,7 @@ function swapNoteToUtxo(keypair: Keypair, n: StoredSwapNote): Utxo {
   return new Utxo({
     amount: BigNumber.from(n.amount),
     blinding: BigNumber.from(n.blinding),
-    keypair: deriveSwapKeypair(keypair.privkey, n.blinding),
+    keypair: deriveTemporaryKeypair(keypair.privkey, n.blinding),
     index: n.index,
     assetId: BigNumber.from(n.assetId),
   })

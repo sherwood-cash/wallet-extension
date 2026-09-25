@@ -2,14 +2,16 @@
 import { ethers, BigNumber } from 'ethers'
 import { poseidonHash, toFixedHex, FIELD_SIZE } from './utils'
 
-// Domain tag for swap-output note keys. Derived from a string rather than written as a
+// Domain tag for one-time note keys (swap outputs and reward-claim outputs). The
+// string still says "swap" and must NEVER change: every existing swap note's key hangs
+// off it. Derived from a string rather than written as a
 // literal so this and the contracts repo cannot drift apart.
-const SWAP_NOTE_KEY_DOMAIN = BigNumber.from(
+const TEMPORARY_KEY_DOMAIN = BigNumber.from(
   ethers.utils.keccak256(ethers.utils.toUtf8Bytes('sherwood.swap.notekey.v1')),
 ).mod(FIELD_SIZE)
 
-const swapNoteKeySeed = (privkey: BigNumber | string) =>
-  poseidonHash([BigNumber.from(privkey), SWAP_NOTE_KEY_DOMAIN])
+const temporaryKeySeed = (privkey: BigNumber | string) =>
+  poseidonHash([BigNumber.from(privkey), TEMPORARY_KEY_DOMAIN])
 
 export class Keypair {
   privkey: string
@@ -34,8 +36,9 @@ export class Keypair {
 }
 
 /**
- * The ONE-TIME keypair that owns a swap-output note. Must stay byte-identical to
- * deriveSwapKeypair in the contracts repo (src/keypair.js).
+ * The ONE-TIME keypair that owns a note whose pubkey goes public: a swap output, or the
+ * re-emitted note of a reward claim. Must stay byte-identical to
+ * deriveTemporaryKeypair in the contracts repo (src/keypair.js).
  *
  * `SwapParams.outPubkey` is the only place a note's P appears in the clear: the vault
  * mints C_out = Poseidon4(Y, P, r, assetOut) on-chain, from a Y nobody knows at proving
@@ -55,6 +58,6 @@ export class Keypair {
  * @param privkey the WALLET's utxo private key
  * @param blinding the output note's blinding
  */
-export function deriveSwapKeypair(privkey: BigNumber | string, blinding: BigNumber | string): Keypair {
-  return new Keypair(toFixedHex(poseidonHash([swapNoteKeySeed(privkey), BigNumber.from(blinding)])))
+export function deriveTemporaryKeypair(privkey: BigNumber | string, blinding: BigNumber | string): Keypair {
+  return new Keypair(toFixedHex(poseidonHash([temporaryKeySeed(privkey), BigNumber.from(blinding)])))
 }

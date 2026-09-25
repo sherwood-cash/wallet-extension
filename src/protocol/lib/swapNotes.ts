@@ -5,7 +5,7 @@
 // by the usual trial-decryption scan. We therefore store the note (Y, r, index,
 // assetId) in localStorage, keyed by the wallet's UTXO pubkey, and merge it back
 // into the spendable set. The note's own pubkey P is a ONE-TIME key (see
-// deriveSwapKeypair), recomputed from the wallet key plus the blinding stored below — so
+// deriveTemporaryKeypair), recomputed from the wallet key plus the blinding stored below — so
 // spending later still needs only the wallet's private key, never persisted here.
 import type { Keypair } from './privacy/keypair'
 

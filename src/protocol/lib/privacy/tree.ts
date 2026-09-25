@@ -13,7 +13,7 @@
 import { ethers, BigNumber } from 'ethers'
 import { MerkleTree } from 'fixed-merkle-tree'
 import { Utxo } from './utxo'
-import { Keypair, deriveSwapKeypair } from './keypair'
+import { Keypair, deriveTemporaryKeypair } from './keypair'
 import { getScanAnchor } from './syncCache'
 import { readProvider } from '../rpc'
 import { poseidonHash2, toFixedHex, MERKLE_TREE_HEIGHT, MERKLE_TREE_ZERO_VALUE } from './utils'
@@ -51,6 +51,8 @@ export interface CommitmentEvent {
    * reveals. Everything else about the note behaves normally.
    */
   swapAmount?: string | null
+  /** set on a reward-claim output: owned by a one-time key, like a swap output */
+  claimNote?: boolean
 }
 
 /** Build one tree per epoch. Leaves are placed at their LOCAL index within each epoch. */
@@ -177,12 +179,16 @@ export async function scanNotes(
       //    the vault measured the real Y on-chain, the Swap event published it, and the
       //    indexer pinned it to this leaf.
       //  - its owner. A swap's P is plaintext calldata, so it is a one-time key rather
-      //    than this wallet's pubkey (see deriveSwapKeypair). The blinding the blob just
+      //    than this wallet's pubkey (see deriveTemporaryKeypair). The blinding the blob just
       //    gave us is the nonce it was derived from, so we recompute it.
       // The blinding itself came out of the blob like any other note's.
       if (c.swapAmount) {
         utxo.amount = BigNumber.from(c.swapAmount)
-        utxo.keypair = deriveSwapKeypair(keypair.privkey, utxo.blinding)
+        utxo.keypair = deriveTemporaryKeypair(keypair.privkey, utxo.blinding)
+      } else if (c.claimNote) {
+        // A reward-claim output: its blob holds the real amount, but its pubkey went public
+        // with the claim, so it is a one-time key derived the same way.
+        utxo.keypair = deriveTemporaryKeypair(keypair.privkey, utxo.blinding)
       }
       // Confirm the decrypted note actually reproduces this commitment (i.e. it is really
       // ours, the index lines up, and its assetId matches this tree).

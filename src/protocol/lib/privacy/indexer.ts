@@ -225,6 +225,7 @@ export async function fetchCommitmentsFromIndexer(assetId: BigNumber): Promise<C
         index: u.index,
         encryptedOutput: u.encryptedOutput,
         swapAmount: u.swapAmount ?? null,
+        claimNote: u.claimNote ?? false,
       })
     }
     // Rows come back ordered by leaf_index, so the last one is the highest. Advancing past
